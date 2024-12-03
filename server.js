@@ -27,11 +27,11 @@ app.set("port", process.env.PORT || 9000);
 
 // Configuración de la base de datos
 const dbOptions = {
-    host: 'bur8fqqgawiri7mur7aq-mysql.services.clever-cloud.com',
-    port: '3306',
-    user: 'uqwd9uckyxt05jsq',
-    password: '4WxOLH1JhfQw4uROM5rm',
-    database: "bur8fqqgawiri7mur7aq"
+    host: process.env.DB_HOST,
+    port: process.env.DB_PORT,
+    user: process.env.DB_USER,
+    password: process.env.DB_PASSWORD,
+    database: process.env.DB_NAME
 };
 //local
 // Configuración de Cloudinary
