@@ -45,7 +45,13 @@ cloudinary.config({
 app.use(myconn(mysql, dbOptions, 'single')); // Conexión a la base de datos
 app.use(express.json()); // Permite recibir datos en formato JSON
 app.use(fileUpload({ useTempFiles: true, tempFileDir: path.join(__dirname, "tmp/") }));
-app.use(cors());
+app.use(
+    cors({
+      origin: "https://front-siena.vercel.app", // Dominio de tu frontend en Vercel
+      methods: "GET,POST,PUT,DELETE",
+      credentials: true, // Si necesitas enviar cookies o encabezados de autenticación
+    })
+  );
 
 // Ruta principal para verificación de conexión
 app.get("/api", (req, res) => {
