@@ -27,11 +27,11 @@ app.set("port", process.env.PORT || 9000);
 
 // Configuración de la base de datos
 const dbOptions = {
-    host: 'localhost',
+    host: 'bur8fqqgawiri7mur7aq-mysql.services.clever-cloud.com',
     port: '3306',
-    user: 'root',
-    password: "",
-    database: "siena"
+    user: 'uqwd9uckyxt05jsq',
+    password: '4WxOLH1JhfQw4uROM5rm',
+    database: "bur8fqqgawiri7mur7aq"
 };
 //local
 // Configuración de Cloudinary
