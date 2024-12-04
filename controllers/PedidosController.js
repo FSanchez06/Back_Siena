@@ -17,13 +17,13 @@ const actualizarTotalEnHistorial = (conn, pedidoId, nuevoTotal, callback) => {
 module.exports = {
     // Crear un nuevo pedido
     createOrder: (req, res) => {
-        const { Detalles, FechaEntrega } = req.body;
+        const { Detalles, FechaEntrega, shippingCharge } = req.body;
         const userId = req.userId;
-        const shippingCharge = req.body.shippingCharge;
     
         console.log("Datos recibidos:", { Detalles, FechaEntrega, userId, shippingCharge });
     
-        if (!Detalles || Detalles.length === 0) {
+        // Validaciones iniciales
+        if (!Detalles || !Array.isArray(Detalles) || Detalles.length === 0) {
             return res.status(400).json({ message: "El pedido debe contener al menos un detalle." });
         }
     
@@ -32,11 +32,9 @@ module.exports = {
         }
     
         const fechaEntrega = new Date(FechaEntrega);
-        const fechaActual = new Date();
-        const fechaMinima = new Date(fechaActual);
-        const fechaMaxima = new Date(fechaActual);
-    
+        const fechaMinima = new Date();
         fechaMinima.setDate(fechaMinima.getDate() + 10);
+        const fechaMaxima = new Date();
         fechaMaxima.setMonth(fechaMaxima.getMonth() + 3);
     
         if (fechaEntrega < fechaMinima || fechaEntrega > fechaMaxima) {
@@ -58,7 +56,6 @@ module.exports = {
                 console.error("Error de conexión a la base de datos:", err);
                 return res.status(500).json({ message: "Error de conexión a la base de datos." });
             }
-            console.log("Conexión a la base de datos exitosa.");
     
             conn.beginTransaction((err) => {
                 if (err) {
@@ -66,7 +63,6 @@ module.exports = {
                     return res.status(500).json({ message: "Error al iniciar la transacción." });
                 }
     
-                // Insertar en Pedidos
                 conn.query("INSERT INTO Pedidos SET ?", [newOrder], (err, result) => {
                     if (err) {
                         console.error("Error al insertar pedido:", err.sqlMessage || err.message);
@@ -84,9 +80,6 @@ module.exports = {
                         detalle.PrecioUnitario,
                     ]);
     
-                    console.log("Detalles del pedido:", detallesQuery);
-    
-                    // Insertar detalles del pedido
                     conn.query(
                         "INSERT INTO DetallesPedido (ID_Pedido, ID_Producto, Cantidad, PrecioUnitario) VALUES ?",
                         [detallesQuery],
@@ -97,9 +90,6 @@ module.exports = {
                                 return res.status(500).json({ message: "Error al crear los detalles del pedido." });
                             }
     
-                            console.log("Detalles insertados correctamente.");
-    
-                            // Actualizar el total del pedido
                             conn.query(
                                 "UPDATE Pedidos SET Total = (SELECT SUM(Cantidad * PrecioUnitario) FROM DetallesPedido WHERE ID_Pedido = ?) + ? WHERE ID_Pedido = ?",
                                 [pedidoId, shippingCharge, pedidoId],
@@ -110,7 +100,6 @@ module.exports = {
                                         return res.status(500).json({ message: "Error al calcular el total del pedido." });
                                     }
     
-                                    // Insertar en HistorialPedidos
                                     conn.query(
                                         `INSERT INTO HistorialPedidos (ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, EstadoPedido, Total, Observaciones)
                                          SELECT ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, Estado, Total, NULL
@@ -142,6 +131,7 @@ module.exports = {
             });
         });
     },
+    
     
     // Obtener un pedido por ID
     getOrderById: (req, res) => {
