@@ -58,6 +58,7 @@ module.exports = {
                 console.error("Error de conexión a la base de datos:", err);
                 return res.status(500).json({ message: "Error de conexión a la base de datos." });
             }
+            console.log("Conexión a la base de datos exitosa.");
     
             conn.beginTransaction((err) => {
                 if (err) {
