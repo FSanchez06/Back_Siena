@@ -19,14 +19,14 @@ module.exports = {
     createOrder: (req, res) => {
         const { Detalles, FechaEntrega } = req.body;
         const userId = req.userId;
-        const shippingCharge = req.body.shippingCharge; // Recibe el costo de envío desde el frontend
+        const shippingCharge = req.body.shippingCharge;
     
         if (!Detalles || Detalles.length === 0) {
-            return res.status(400).send("El pedido debe contener al menos un detalle.");
+            return res.status(400).json({ message: "El pedido debe contener al menos un detalle." });
         }
     
         if (!FechaEntrega) {
-            return res.status(400).send("Debe seleccionar una fecha de entrega.");
+            return res.status(400).json({ message: "Debe seleccionar una fecha de entrega." });
         }
     
         const fechaEntrega = new Date(FechaEntrega);
@@ -38,37 +38,40 @@ module.exports = {
         fechaMaxima.setMonth(fechaMaxima.getMonth() + 3); // 3 meses después de hoy
     
         if (fechaEntrega < fechaMinima || fechaEntrega > fechaMaxima) {
-            return res.status(400).send(
-                `La fecha de entrega debe estar entre ${fechaMinima.toISOString().split('T')[0]} y ${fechaMaxima.toISOString().split('T')[0]}.`
-            );
+            return res.status(400).json({
+                message: `La fecha de entrega debe estar entre ${fechaMinima.toISOString().split('T')[0]} y ${fechaMaxima.toISOString().split('T')[0]}.`,
+            });
         }
     
-        // Crea el nuevo pedido
         const newOrder = {
             ID_Usuario: userId,
             ID_MetodoPago: null,
-            Total: 0, // Se calculará más adelante
+            Total: 0,
             Estado: "Por pagar",
             FechaEntrega,
         };
     
         req.getConnection((err, conn) => {
-            if (err) return res.status(500).send("Error de conexión a la base de datos.");
+            if (err) {
+                console.error("Error de conexión:", err);
+                return res.status(500).json({ message: "Error de conexión a la base de datos." });
+            }
     
-            // Inicia la transacción
             conn.beginTransaction((err) => {
-                if (err) return res.status(500).send("Error al iniciar la transacción.");
+                if (err) {
+                    console.error("Error al iniciar la transacción:", err);
+                    return res.status(500).json({ message: "Error al iniciar la transacción." });
+                }
     
-                // Inserta el pedido en la base de datos
                 conn.query("INSERT INTO Pedidos SET ?", [newOrder], (err, result) => {
                     if (err) {
+                        console.error("Error al insertar pedido:", err);
                         conn.rollback();
-                        return res.status(500).send("Error al crear el pedido.");
+                        return res.status(500).json({ message: "Error al crear el pedido." });
                     }
     
                     const pedidoId = result.insertId;
     
-                    // Crear los detalles del pedido
                     const detallesQuery = Detalles.map((detalle) => [
                         pedidoId,
                         detalle.ID_Producto,
@@ -76,49 +79,35 @@ module.exports = {
                         detalle.PrecioUnitario,
                     ]);
     
-                    // Inserta los detalles del pedido
                     conn.query(
                         "INSERT INTO DetallesPedido (ID_Pedido, ID_Producto, Cantidad, PrecioUnitario) VALUES ?",
                         [detallesQuery],
                         (err) => {
                             if (err) {
+                                console.error("Error al insertar detalles del pedido:", err);
                                 conn.rollback();
-                                return res.status(500).send("Error al crear los detalles del pedido.");
+                                return res.status(500).json({ message: "Error al crear los detalles del pedido." });
                             }
     
-                            // Calcula el total del pedido, incluyendo el costo de envío
                             conn.query(
                                 "UPDATE Pedidos SET Total = (SELECT SUM(Cantidad * PrecioUnitario) FROM DetallesPedido WHERE ID_Pedido = ?) + ? WHERE ID_Pedido = ?",
-                                [pedidoId, shippingCharge, pedidoId], // Incluye el costo de envío en el cálculo
+                                [pedidoId, shippingCharge, pedidoId],
                                 (err) => {
                                     if (err) {
+                                        console.error("Error al actualizar el total del pedido:", err);
                                         conn.rollback();
-                                        return res.status(500).send("Error al calcular el total del pedido.");
+                                        return res.status(500).json({ message: "Error al calcular el total del pedido." });
                                     }
     
-                                    // Registrar en el historial de pedidos
-                                    conn.query(
-                                        `INSERT INTO HistorialPedidos 
-                                        (ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, EstadoPedido, Total, Observaciones)
-                                        SELECT ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, Estado, Total, NULL 
-                                        FROM Pedidos WHERE ID_Pedido = ?`,
-                                        [pedidoId],
-                                        (err) => {
-                                            if (err) {
-                                                conn.rollback();
-                                                return res.status(500).send("Error al registrar el historial del pedido.");
-                                            }
-    
-                                            conn.commit((err) => {
-                                                if (err) {
-                                                    conn.rollback();
-                                                    return res.status(500).send("Error al confirmar la transacción.");
-                                                }
-    
-                                                res.status(201).json({ message: "Pedido creado exitosamente." });
-                                            });
+                                    conn.commit((err) => {
+                                        if (err) {
+                                            console.error("Error al confirmar la transacción:", err);
+                                            conn.rollback();
+                                            return res.status(500).json({ message: "Error al confirmar la transacción." });
                                         }
-                                    );
+    
+                                        res.status(201).json({ message: "Pedido creado exitosamente." });
+                                    });
                                 }
                             );
                         }
@@ -127,8 +116,6 @@ module.exports = {
             });
         });
     },
-    
-      
     
     
     // Obtener un pedido por ID
