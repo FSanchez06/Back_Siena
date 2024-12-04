@@ -55,7 +55,8 @@ app.use(
 
   const allowedOrigins = [
     "https://front-siena.vercel.app",
-    "https://front-siena-2s4qpu4sn-felipesanchezcon2-gmailcoms-projects.vercel.app"
+    "https://front-siena-git-main-felipesanchezcon2-gmailcoms-projects.vercel.app",
+    "https://front-siena-73fbwl5dh-felipesanchezcon2-gmailcoms-projects.vercel.app"
   ];
   
   app.use(
