@@ -1,38 +1,4 @@
 module.exports = {
-    // Insertar una venta automáticamente cuando el estado del pedido es "Pagado" o "Pago contra entrega"
-    createSale: (req, res) => {
-        const pedidoId = req.params.id;
-        const userId = req.userId;
-
-        req.getConnection((err, conn) => {
-            if (err) return res.status(500).send("Error de conexión a la base de datos.");
-
-            // Verificar que el pedido está pagado o es pago contra entrega
-            conn.query("SELECT Estado, Total FROM Pedidos WHERE ID_Pedido = ?", [pedidoId], (err, results) => {
-                if (err || results.length === 0) return res.status(404).send("Pedido no encontrado.");
-                const pedido = results[0];
-
-                if (pedido.Estado !== "Pagado" && pedido.Estado !== "Pago contra entrega") {
-                    return res.status(400).send("La venta solo puede registrarse si el pedido está en estado 'Pagado' o 'Pago contra entrega'.");
-                }
-
-                // Insertar la venta en la tabla Ventas
-                const nuevaVenta = {
-                    ID_Pedido: pedidoId,
-                    FechaVenta: new Date(),
-                    TotalVenta: pedido.Total,
-                    Estado: "En proceso", // Estado inicial de la venta
-                    ID_Usuario: userId
-                };
-
-                conn.query("INSERT INTO Ventas SET ?", [nuevaVenta], (err, result) => {
-                    if (err) return res.status(500).send("Error al registrar la venta.");
-
-                    res.status(201).send("Venta registrada exitosamente.");
-                });
-            });
-        });
-    },
 
     // Obtener una venta por ID
     getSaleById: (req, res) => {

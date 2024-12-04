@@ -1,5 +1,8 @@
+
 module.exports = {
     // Obtener historial de pedidos de un usuario específico
+
+  
     getHistorialPedidosByUser: (req, res) => {
       const userId = req.userId; // Se obtiene del middleware de autenticación
   

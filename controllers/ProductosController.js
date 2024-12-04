@@ -283,53 +283,94 @@ module.exports = {
     addStock: (req, res) => {
         const { id } = req.params;
         const { cantidad } = req.body; // Cantidad a agregar
-
+        const userId = req.userId; // ID del usuario que realiza el cambio
+    
         req.getConnection((err, conn) => {
-            if (err) {
-                console.error(err);
-                return res.status(500).send("Error de conexión a la base de datos.");
-            }
-
-            conn.query(
-                "UPDATE Productos SET StockDisponible = StockDisponible + ? WHERE ID_Producto = ?",
-                [cantidad, id],
-                (err) => {
-                    if (err) {
-                        console.error(err);
-                        return res.status(500).send("Error al agregar stock.");
-                    }
-
-                    res.send(`Stock incrementado en ${cantidad} unidades.`);
+            if (err) return res.status(500).send("Error de conexión a la base de datos.");
+    
+            // Obtener el stock actual antes de actualizarlo
+            conn.query("SELECT StockDisponible FROM Productos WHERE ID_Producto = ?", [id], (err, results) => {
+                if (err || results.length === 0) {
+                    return res.status(404).send("Producto no encontrado.");
                 }
-            );
+    
+                const stockActual = results[0].StockDisponible;
+    
+                // Actualizar el stock disponible
+                conn.query(
+                    "UPDATE Productos SET StockDisponible = StockDisponible + ? WHERE ID_Producto = ?",
+                    [cantidad, id],
+                    (err) => {
+                        if (err) return res.status(500).send("Error al agregar stock.");
+    
+                        // Registrar el cambio en el historial
+                        const nuevoHistorial = {
+                            ID_Producto: id,
+                            Cambio: "Incremento de Stock",
+                            Cantidad: cantidad,
+                            FechaCambio: new Date(),
+                            ID_Usuario: userId || null,
+                        };
+    
+                        conn.query("INSERT INTO HistorialStock SET ?", [nuevoHistorial], (err) => {
+                            if (err) return res.status(500).send("Error al registrar el historial de stock.");
+                            res.send(`Stock incrementado en ${cantidad} unidades y registrado en el historial.`);
+                        });
+                    }
+                );
+            });
         });
     },
+    
 
     // Eliminar stock
     removeStock: (req, res) => {
         const { id } = req.params;
         const { cantidad } = req.body; // Cantidad a reducir
-
+        const userId = req.userId; // ID del usuario que realiza el cambio
+    
         req.getConnection((err, conn) => {
-            if (err) {
-                console.error(err);
-                return res.status(500).send("Error de conexión a la base de datos.");
-            }
-
-            conn.query(
-                "UPDATE Productos SET StockDisponible = StockDisponible - ? WHERE ID_Producto = ?",
-                [cantidad, id],
-                (err) => {
-                    if (err) {
-                        console.error(err);
-                        return res.status(500).send("Error al reducir stock.");
-                    }
-
-                    res.send(`Stock reducido en ${cantidad} unidades.`);
+            if (err) return res.status(500).send("Error de conexión a la base de datos.");
+    
+            // Obtener el stock actual antes de actualizarlo
+            conn.query("SELECT StockDisponible FROM Productos WHERE ID_Producto = ?", [id], (err, results) => {
+                if (err || results.length === 0) {
+                    return res.status(404).send("Producto no encontrado.");
                 }
-            );
+    
+                const stockActual = results[0].StockDisponible;
+    
+                // Validar que el stock no quede negativo
+                if (stockActual - cantidad < 0) {
+                    return res.status(400).send("El stock no puede ser menor a 0.");
+                }
+    
+                // Actualizar el stock disponible
+                conn.query(
+                    "UPDATE Productos SET StockDisponible = StockDisponible - ? WHERE ID_Producto = ?",
+                    [cantidad, id],
+                    (err) => {
+                        if (err) return res.status(500).send("Error al reducir stock.");
+    
+                        // Registrar el cambio en el historial
+                        const nuevoHistorial = {
+                            ID_Producto: id,
+                            Cambio: "Reducción de Stock",
+                            Cantidad: -cantidad,
+                            FechaCambio: new Date(),
+                            ID_Usuario: userId || null,
+                        };
+    
+                        conn.query("INSERT INTO HistorialStock SET ?", [nuevoHistorial], (err) => {
+                            if (err) return res.status(500).send("Error al registrar el historial de stock.");
+                            res.send(`Stock reducido en ${cantidad} unidades y registrado en el historial.`);
+                        });
+                    }
+                );
+            });
         });
     },
+    
 
     // Actualizar stock mínimo
     updateStockMinimo: (req, res) => {

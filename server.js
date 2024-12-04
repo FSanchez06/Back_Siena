@@ -20,6 +20,7 @@ const ventasRoutes = require("./routes/VentasRoutes");
 const disenosRoutes = require("./routes/DisenosRoutes");
 const historialpedidosRoutes = require("./routes/HistorialPedidosRoutes")
 const historialventasRoutes = require("./routes/HistorialVentasRoutes");
+const historialstockRoutes = require("./routes/HistorialStockRoutes");
 
 const { authenticateToken } = require("./Middlewares/authMiddleware"); // Autenticación JWT
 const app = express();
@@ -93,6 +94,7 @@ app.use("/api", ventasRoutes); //Ruta para ventas
 app.use("/api", disenosRoutes); //Rutas para los diseños
 app.use("/api", historialpedidosRoutes) //Rutas para historial pedidos
 app.use("/api", historialventasRoutes) //Rutas para historial ventas
+app.use("/api", historialstockRoutes); //Rutas historial Stock
 
 // Iniciar el servidor
 app.listen(app.get("port"), () => {

@@ -1,7 +1,6 @@
 const express = require("express");
 const router = express.Router();
 const {
-    createSale,
     getSaleById,
     getUserSales,
     updateSaleStatus,
@@ -10,9 +9,6 @@ const {
 } = require("../controllers/VentasController");
 const { authenticateToken } = require("../Middlewares/authMiddleware");
 const { checkRole } = require("../Middlewares/roleMiddleware");
-
-// Insertar una venta automáticamente al procesar el pago (solo cuando el pedido es pagado o pago contra entrega)
-router.post("/ventas/:id", authenticateToken, checkRole([3]), createSale);
 
 // Obtener una venta por ID (Admin, Empleado, Cliente propietario)
 router.get("/ventas/:id", authenticateToken, getSaleById);
