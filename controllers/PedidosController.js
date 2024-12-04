@@ -66,6 +66,7 @@ module.exports = {
                     return res.status(500).json({ message: "Error al iniciar la transacción." });
                 }
     
+                // Insertar en Pedidos
                 conn.query("INSERT INTO Pedidos SET ?", [newOrder], (err, result) => {
                     if (err) {
                         console.error("Error al insertar pedido:", err.sqlMessage || err.message);
@@ -85,6 +86,7 @@ module.exports = {
     
                     console.log("Detalles del pedido:", detallesQuery);
     
+                    // Insertar detalles del pedido
                     conn.query(
                         "INSERT INTO DetallesPedido (ID_Pedido, ID_Producto, Cantidad, PrecioUnitario) VALUES ?",
                         [detallesQuery],
@@ -97,6 +99,7 @@ module.exports = {
     
                             console.log("Detalles insertados correctamente.");
     
+                            // Actualizar el total del pedido
                             conn.query(
                                 "UPDATE Pedidos SET Total = (SELECT SUM(Cantidad * PrecioUnitario) FROM DetallesPedido WHERE ID_Pedido = ?) + ? WHERE ID_Pedido = ?",
                                 [pedidoId, shippingCharge, pedidoId],
@@ -107,15 +110,30 @@ module.exports = {
                                         return res.status(500).json({ message: "Error al calcular el total del pedido." });
                                     }
     
-                                    conn.commit((err) => {
-                                        if (err) {
-                                            console.error("Error al confirmar la transacción:", err);
-                                            conn.rollback();
-                                            return res.status(500).json({ message: "Error al confirmar la transacción." });
-                                        }
+                                    // Insertar en HistorialPedidos
+                                    conn.query(
+                                        `INSERT INTO HistorialPedidos (ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, EstadoPedido, Total, Observaciones)
+                                         SELECT ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, Estado, Total, NULL
+                                         FROM Pedidos WHERE ID_Pedido = ?`,
+                                        [pedidoId],
+                                        (err) => {
+                                            if (err) {
+                                                console.error("Error al insertar en historial del pedido:", err.sqlMessage || err.message);
+                                                conn.rollback();
+                                                return res.status(500).json({ message: "Error al registrar el historial del pedido." });
+                                            }
     
-                                        res.status(201).json({ message: "Pedido creado exitosamente." });
-                                    });
+                                            conn.commit((err) => {
+                                                if (err) {
+                                                    console.error("Error al confirmar la transacción:", err);
+                                                    conn.rollback();
+                                                    return res.status(500).json({ message: "Error al confirmar la transacción." });
+                                                }
+    
+                                                res.status(201).json({ message: "Pedido creado exitosamente y registrado en el historial." });
+                                            });
+                                        }
+                                    );
                                 }
                             );
                         }
@@ -124,9 +142,6 @@ module.exports = {
             });
         });
     },
-    
-    
-    
     
     // Obtener un pedido por ID
     getOrderById: (req, res) => {
