@@ -21,6 +21,8 @@ module.exports = {
         const userId = req.userId;
         const shippingCharge = req.body.shippingCharge;
     
+        console.log("Datos recibidos:", { Detalles, FechaEntrega, userId, shippingCharge });
+    
         if (!Detalles || Detalles.length === 0) {
             return res.status(400).json({ message: "El pedido debe contener al menos un detalle." });
         }
@@ -71,6 +73,7 @@ module.exports = {
                     }
     
                     const pedidoId = result.insertId;
+                    console.log("Pedido creado con ID:", pedidoId);
     
                     const detallesQuery = Detalles.map((detalle) => [
                         pedidoId,
@@ -78,6 +81,8 @@ module.exports = {
                         detalle.Cantidad,
                         detalle.PrecioUnitario,
                     ]);
+    
+                    console.log("Detalles del pedido:", detallesQuery);
     
                     conn.query(
                         "INSERT INTO DetallesPedido (ID_Pedido, ID_Producto, Cantidad, PrecioUnitario) VALUES ?",
@@ -88,6 +93,8 @@ module.exports = {
                                 conn.rollback();
                                 return res.status(500).json({ message: "Error al crear los detalles del pedido." });
                             }
+    
+                            console.log("Detalles insertados correctamente.");
     
                             conn.query(
                                 "UPDATE Pedidos SET Total = (SELECT SUM(Cantidad * PrecioUnitario) FROM DetallesPedido WHERE ID_Pedido = ?) + ? WHERE ID_Pedido = ?",
@@ -116,6 +123,7 @@ module.exports = {
             });
         });
     },
+    
     
     
     
