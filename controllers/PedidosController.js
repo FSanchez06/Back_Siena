@@ -34,8 +34,8 @@ module.exports = {
         const fechaMinima = new Date(fechaActual);
         const fechaMaxima = new Date(fechaActual);
     
-        fechaMinima.setDate(fechaMinima.getDate() + 10); // 10 días después de hoy
-        fechaMaxima.setMonth(fechaMaxima.getMonth() + 3); // 3 meses después de hoy
+        fechaMinima.setDate(fechaMinima.getDate() + 10);
+        fechaMaxima.setMonth(fechaMaxima.getMonth() + 3);
     
         if (fechaEntrega < fechaMinima || fechaEntrega > fechaMaxima) {
             return res.status(400).json({
@@ -53,7 +53,7 @@ module.exports = {
     
         req.getConnection((err, conn) => {
             if (err) {
-                console.error("Error de conexión:", err);
+                console.error("Error de conexión a la base de datos:", err);
                 return res.status(500).json({ message: "Error de conexión a la base de datos." });
             }
     
@@ -65,7 +65,7 @@ module.exports = {
     
                 conn.query("INSERT INTO Pedidos SET ?", [newOrder], (err, result) => {
                     if (err) {
-                        console.error("Error al insertar pedido:", err);
+                        console.error("Error al insertar pedido:", err.sqlMessage || err.message);
                         conn.rollback();
                         return res.status(500).json({ message: "Error al crear el pedido." });
                     }
@@ -84,7 +84,7 @@ module.exports = {
                         [detallesQuery],
                         (err) => {
                             if (err) {
-                                console.error("Error al insertar detalles del pedido:", err);
+                                console.error("Error al insertar detalles del pedido:", err.sqlMessage || err.message);
                                 conn.rollback();
                                 return res.status(500).json({ message: "Error al crear los detalles del pedido." });
                             }
@@ -94,7 +94,7 @@ module.exports = {
                                 [pedidoId, shippingCharge, pedidoId],
                                 (err) => {
                                     if (err) {
-                                        console.error("Error al actualizar el total del pedido:", err);
+                                        console.error("Error al actualizar el total del pedido:", err.sqlMessage || err.message);
                                         conn.rollback();
                                         return res.status(500).json({ message: "Error al calcular el total del pedido." });
                                     }
@@ -116,6 +116,7 @@ module.exports = {
             });
         });
     },
+    
     
     
     // Obtener un pedido por ID
