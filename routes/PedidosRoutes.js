@@ -15,7 +15,7 @@ const { authenticateToken } = require("../Middlewares/authMiddleware");
 const { checkRole } = require("../Middlewares/roleMiddleware");
 
 // Crear un nuevo pedido (Cliente)
-router.post("/pedidos", authenticateToken, checkRole([3]), createOrder);
+router.post("/pedidos", authenticateToken, createOrder);
 
 // Obtener detalles de un pedido (Admin, Empleado, Cliente propietario)
 router.get("/pedidos/:id", authenticateToken, getOrderById);
