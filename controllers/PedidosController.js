@@ -71,6 +71,7 @@ const actualizarEstadoPedido = (conn, pedidoId, nuevoEstado, nuevaFechaEntrega =
 
 module.exports = {
     // Crear un nuevo pedido
+    
     createOrder: (req, res) => {
         const { Detalles, FechaEntrega, shippingCharge } = req.body;
         const userId = req.userId;
@@ -219,6 +220,8 @@ module.exports = {
                     res.status(400).json({ message: err });
                 });
         });
+        console.log("Datos recibidos en el controlador:", req.body);
+
     },
     
     
