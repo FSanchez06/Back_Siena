@@ -12,15 +12,68 @@ const actualizarTotalEnHistorial = (conn, pedidoId, nuevoTotal, callback) => {
     );
 };
 
+const insertarEnHistorialDetalles = (conn, pedidoId, detalles, callback) => {
+    const syncPromises = detalles.map((detalle) => {
+        return new Promise((resolve, reject) => {
+            conn.query(
+                `INSERT INTO HistorialDetallesPedido (IdHistorialPedido, ID_Producto, Cantidad, Subtotal, PrecioUnitario)
+                 SELECT hp.IdHistorialPedido, ?, ?, ?, ?
+                 FROM HistorialPedidos hp
+                 WHERE hp.ID_Pedido = ?`,
+                [detalle.ID_Producto, detalle.Cantidad, detalle.Cantidad * detalle.PrecioUnitario, detalle.PrecioUnitario, pedidoId],
+                (err) => {
+                    if (err) return reject(err);
+                    resolve();
+                }
+            );
+        });
+    });
 
+    Promise.all(syncPromises)
+        .then(() => callback(null))
+        .catch((err) => callback(err));
+};
+
+const actualizarEstadoYFechaEnHistorial = (conn, pedidoId, nuevoEstado, nuevaFechaEntrega, callback) => {
+    conn.query(
+        "UPDATE HistorialPedidos SET EstadoPedido = ?, FechaEntrega = ? WHERE ID_Pedido = ?",
+        [nuevoEstado, nuevaFechaEntrega, pedidoId],
+        (err) => {
+            if (err) {
+                console.error("Error al actualizar el historial del pedido:", err);
+                return callback(err);
+            }
+            callback(null);
+        }
+    );
+};
+
+const actualizarEstadoPedido = (conn, pedidoId, nuevoEstado, nuevaFechaEntrega = null, callback) => {
+    conn.query(
+        "UPDATE Pedidos SET Estado = ?, FechaEntrega = ? WHERE ID_Pedido = ?",
+        [nuevoEstado, nuevaFechaEntrega, pedidoId],
+        (err) => {
+            if (err) {
+                console.error("Error al actualizar el pedido:", err);
+                return callback(err);
+            }
+
+            actualizarEstadoYFechaEnHistorial(conn, pedidoId, nuevoEstado, nuevaFechaEntrega, (err) => {
+                if (err) {
+                    console.error("Error al sincronizar estado en el historial:", err);
+                    return callback(err);
+                }
+                callback(null);
+            });
+        }
+    );
+};
 
 module.exports = {
     // Crear un nuevo pedido
     createOrder: (req, res) => {
         const { Detalles, FechaEntrega, shippingCharge } = req.body;
         const userId = req.userId;
-    
-        console.log("Datos recibidos:", { Detalles, FechaEntrega, userId, shippingCharge });
     
         // Validaciones iniciales
         if (!Detalles || !Array.isArray(Detalles) || Detalles.length === 0) {
@@ -57,78 +110,114 @@ module.exports = {
                 return res.status(500).json({ message: "Error de conexión a la base de datos." });
             }
     
-            conn.beginTransaction((err) => {
-                if (err) {
-                    console.error("Error al iniciar la transacción:", err);
-                    return res.status(500).json({ message: "Error al iniciar la transacción." });
-                }
-    
-                conn.query("INSERT INTO Pedidos SET ?", [newOrder], (err, result) => {
-                    if (err) {
-                        console.error("Error al insertar pedido:", err.sqlMessage || err.message);
-                        conn.rollback();
-                        return res.status(500).json({ message: "Error al crear el pedido." });
-                    }
-    
-                    const pedidoId = result.insertId;
-                    console.log("Pedido creado con ID:", pedidoId);
-    
-                    const detallesQuery = Detalles.map((detalle) => [
-                        pedidoId,
-                        detalle.ID_Producto,
-                        detalle.Cantidad,
-                        detalle.PrecioUnitario,
-                    ]);
-    
+            // Validar stock disponible antes de proceder
+            const validationPromises = Detalles.map((detalle) => {
+                return new Promise((resolve, reject) => {
                     conn.query(
-                        "INSERT INTO DetallesPedido (ID_Pedido, ID_Producto, Cantidad, PrecioUnitario) VALUES ?",
-                        [detallesQuery],
-                        (err) => {
-                            if (err) {
-                                console.error("Error al insertar detalles del pedido:", err.sqlMessage || err.message);
-                                conn.rollback();
-                                return res.status(500).json({ message: "Error al crear los detalles del pedido." });
+                        "SELECT StockDisponible FROM Productos WHERE ID_Producto = ?",
+                        [detalle.ID_Producto],
+                        (err, results) => {
+                            if (err || results.length === 0) return reject(`Producto con ID ${detalle.ID_Producto} no encontrado.`);
+                            const stockDisponible = results[0].StockDisponible;
+    
+                            if (detalle.Cantidad > stockDisponible) {
+                                return reject(`El producto con ID ${detalle.ID_Producto} no tiene suficiente stock.`);
                             }
-    
-                            conn.query(
-                                "UPDATE Pedidos SET Total = (SELECT SUM(Cantidad * PrecioUnitario) FROM DetallesPedido WHERE ID_Pedido = ?) + ? WHERE ID_Pedido = ?",
-                                [pedidoId, shippingCharge, pedidoId],
-                                (err) => {
-                                    if (err) {
-                                        console.error("Error al actualizar el total del pedido:", err.sqlMessage || err.message);
-                                        conn.rollback();
-                                        return res.status(500).json({ message: "Error al calcular el total del pedido." });
-                                    }
-    
-                                    conn.query(
-                                        `INSERT INTO HistorialPedidos (ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, EstadoPedido, Total, Observaciones)
-                                         SELECT ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, Estado, Total, NULL
-                                         FROM Pedidos WHERE ID_Pedido = ?`,
-                                        [pedidoId],
-                                        (err) => {
-                                            if (err) {
-                                                console.error("Error al insertar en historial del pedido:", err.sqlMessage || err.message);
-                                                conn.rollback();
-                                                return res.status(500).json({ message: "Error al registrar el historial del pedido." });
-                                            }
-    
-                                            conn.commit((err) => {
-                                                if (err) {
-                                                    console.error("Error al confirmar la transacción:", err);
-                                                    conn.rollback();
-                                                    return res.status(500).json({ message: "Error al confirmar la transacción." });
-                                                }
-    
-                                                res.status(201).json({ message: "Pedido creado exitosamente y registrado en el historial." });
-                                            });
-                                        }
-                                    );
-                                }
-                            );
+                            resolve();
                         }
                     );
                 });
             });
+    
+            Promise.all(validationPromises)
+                .then(() => {
+                    // Continuar con la creación del pedido si la validación es exitosa
+                    conn.beginTransaction((err) => {
+                        if (err) {
+                            console.error("Error al iniciar la transacción:", err);
+                            return res.status(500).json({ message: "Error al iniciar la transacción." });
+                        }
+    
+                        conn.query("INSERT INTO Pedidos SET ?", [newOrder], (err, result) => {
+                            if (err) {
+                                console.error("Error al insertar pedido:", err.sqlMessage || err.message);
+                                conn.rollback();
+                                return res.status(500).json({ message: "Error al crear el pedido." });
+                            }
+    
+                            const pedidoId = result.insertId;
+    
+                            const detallesQuery = Detalles.map((detalle) => [
+                                pedidoId,
+                                detalle.ID_Producto,
+                                detalle.Cantidad,
+                                detalle.PrecioUnitario,
+                            ]);
+    
+                            conn.query(
+                                "INSERT INTO DetallesPedido (ID_Pedido, ID_Producto, Cantidad, PrecioUnitario) VALUES ?",
+                                [detallesQuery],
+                                (err) => {
+                                    if (err) {
+                                        console.error("Error al insertar detalles del pedido:", err.sqlMessage || err.message);
+                                        conn.rollback();
+                                        return res.status(500).json({ message: "Error al crear los detalles del pedido." });
+                                    }
+    
+                                    conn.query(
+                                        "UPDATE Pedidos SET Total = (SELECT SUM(Cantidad * PrecioUnitario) FROM DetallesPedido WHERE ID_Pedido = ?) + ? WHERE ID_Pedido = ?",
+                                        [pedidoId, shippingCharge, pedidoId],
+                                        (err) => {
+                                            if (err) {
+                                                console.error("Error al actualizar el total del pedido:", err.sqlMessage || err.message);
+                                                conn.rollback();
+                                                return res.status(500).json({ message: "Error al calcular el total del pedido." });
+                                            }
+    
+                                            conn.query(
+                                                `INSERT INTO HistorialPedidos (ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, EstadoPedido, Total, Observaciones)
+                                                 SELECT ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, Estado, Total, NULL
+                                                 FROM Pedidos WHERE ID_Pedido = ?`,
+                                                [pedidoId],
+                                                (err) => {
+                                                    if (err) {
+                                                        console.error("Error al insertar en historial del pedido:", err.sqlMessage || err.message);
+                                                        conn.rollback();
+                                                        return res.status(500).json({ message: "Error al registrar el historial del pedido." });
+                                                    }
+    
+                                                    insertarEnHistorialDetalles(conn, pedidoId, Detalles, (err) => {
+                                                        if (err) {
+                                                            console.error("Error al sincronizar detalles en el historial:", err);
+                                                            conn.rollback();
+                                                            return res.status(500).json({ message: "Error al sincronizar detalles en el historial." });
+                                                        }
+    
+                                                        conn.commit((err) => {
+                                                            if (err) {
+                                                                console.error("Error al confirmar la transacción:", err);
+                                                                conn.rollback();
+                                                                return res.status(500).json({ message: "Error al confirmar la transacción." });
+                                                            }
+    
+                                                            res.status(201).json({
+                                                                message: "Pedido creado exitosamente y registrado en el historial.",
+                                                            });
+                                                        });
+                                                    });
+                                                }
+                                            );
+                                        }
+                                    );
+                                }
+                            );
+                        });
+                    });
+                })
+                .catch((err) => {
+                    console.error("Error en validación de stock:", err);
+                    res.status(400).json({ message: err });
+                });
         });
     },
     
@@ -226,19 +315,48 @@ module.exports = {
                         );
                     }
     
-                    // Actualizar la fecha de entrega
-                    conn.query(
-                        "UPDATE Pedidos SET FechaEntrega = ? WHERE ID_Pedido = ?",
-                        [FechaEntrega, pedidoId],
-                        (err) => {
-                            if (err) return res.status(500).send("Error al actualizar la fecha de entrega.");
-                            res.send("Fecha de entrega actualizada correctamente.");
-                        }
-                    );
+                    // Actualizar la fecha de entrega en `Pedidos` y sincronizar con `HistorialPedidos`
+                    conn.beginTransaction((err) => {
+                        if (err) return res.status(500).send("Error al iniciar la transacción.");
+    
+                        conn.query(
+                            "UPDATE Pedidos SET FechaEntrega = ? WHERE ID_Pedido = ?",
+                            [FechaEntrega, pedidoId],
+                            (err) => {
+                                if (err) {
+                                    conn.rollback();
+                                    return res.status(500).send("Error al actualizar la fecha de entrega.");
+                                }
+    
+                                // Actualizar en `HistorialPedidos`
+                                actualizarEstadoYFechaEnHistorial(
+                                    conn,
+                                    pedidoId,
+                                    pedido.Estado, // No cambió el estado, pero puede cambiar en otras funciones
+                                    FechaEntrega,
+                                    (err) => {
+                                        if (err) {
+                                            conn.rollback();
+                                            return res.status(500).send("Error al sincronizar la fecha en el historial.");
+                                        }
+    
+                                        conn.commit((err) => {
+                                            if (err) {
+                                                conn.rollback();
+                                                return res.status(500).send("Error al confirmar los cambios.");
+                                            }
+    
+                                            res.send("Fecha de entrega actualizada correctamente.");
+                                        });
+                                    }
+                                );
+                            }
+                        );
+                    });
                 }
             );
         });
-    },
+    },    
     
     
 
@@ -255,13 +373,12 @@ module.exports = {
         req.getConnection((err, conn) => {
             if (err) return res.status(500).send("Error de conexión a la base de datos.");
     
-            // Iniciar la transacción
             conn.beginTransaction((err) => {
                 if (err) return res.status(500).send("Error al iniciar la transacción.");
     
                 // Obtener la fecha actual de entrega antes de la actualización
                 conn.query(
-                    "SELECT FechaEntrega FROM Pedidos WHERE ID_Pedido = ?",
+                    "SELECT FechaEntrega, Estado FROM Pedidos WHERE ID_Pedido = ?",
                     [pedidoId],
                     (err, results) => {
                         if (err || results.length === 0) {
@@ -269,9 +386,10 @@ module.exports = {
                             return res.status(404).send("Pedido no encontrado.");
                         }
     
-                        const fechaAnterior = results[0].FechaEntrega;
+                        const pedido = results[0];
+                        const fechaAnterior = pedido.FechaEntrega;
     
-                        // Actualizar la fecha de entrega en la tabla Pedidos
+                        // Actualizar la fecha de entrega en la tabla `Pedidos`
                         conn.query(
                             "UPDATE Pedidos SET FechaEntrega = ? WHERE ID_Pedido = ?",
                             [FechaEntrega, pedidoId],
@@ -281,42 +399,51 @@ module.exports = {
                                     return res.status(500).send("Error al actualizar la fecha de entrega.");
                                 }
     
-                                // Registrar el cambio en el historial
-                                const historial = {
-                                    ID_Pedido: pedidoId,
-                                    Cambio: "Cambio de fecha de entrega",
-                                    ValorAnterior: fechaAnterior, // Fecha anterior obtenida
-                                    ValorNuevo: FechaEntrega,
-                                    FechaCambio: new Date(),
-                                    ID_Usuario: adminId,
-                                    Justificacion: Justificacion
-                                };
-    
-                                conn.query(
-                                    "INSERT INTO HistorialPedidos (ID_Pedido, Cambio, ValorAnterior, ValorNuevo, FechaCambio, ID_Usuario, Justificacion) VALUES (?, ?, ?, ?, NOW(), ?, ?)",
-                                    [
-                                        historial.ID_Pedido,
-                                        historial.Cambio,
-                                        historial.ValorAnterior,
-                                        historial.ValorNuevo,
-                                        historial.ID_Usuario,
-                                        historial.Justificacion
-                                    ],
+                                // Actualizar en `HistorialPedidos`
+                                actualizarEstadoYFechaEnHistorial(
+                                    conn,
+                                    pedidoId,
+                                    pedido.Estado, // El estado permanece igual
+                                    FechaEntrega,
                                     (err) => {
                                         if (err) {
                                             conn.rollback();
-                                            return res.status(500).send("Error al registrar el historial del cambio.");
+                                            return res.status(500).send("Error al sincronizar la fecha en el historial.");
                                         }
     
-                                        // Confirmar la transacción
-                                        conn.commit((err) => {
-                                            if (err) {
-                                                conn.rollback();
-                                                return res.status(500).send("Error al confirmar el cambio.");
-                                            }
+                                        // Registrar el cambio en el historial con la justificación
+                                        const historial = {
+                                            ID_Pedido: pedidoId,
+                                            Cambio: "Cambio de fecha de entrega",
+                                            ValorAnterior: fechaAnterior, // Fecha anterior obtenida
+                                            ValorNuevo: FechaEntrega,
+                                            FechaCambio: new Date(),
+                                            ID_Usuario: adminId,
+                                            Justificacion: Justificacion.trim(),
+                                        };
     
-                                            res.send("Fecha de entrega actualizada correctamente con justificación.");
-                                        });
+                                        conn.query(
+                                            `INSERT INTO HistorialPedidos (ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, EstadoPedido, Total, Observaciones)
+                                             SELECT ID_Pedido, ID_Usuario, FechaPedido, ?, EstadoPedido, Total, ? 
+                                             FROM HistorialPedidos WHERE ID_Pedido = ?`,
+                                            [FechaEntrega, Justificacion, pedidoId],
+                                            (err) => {
+                                                if (err) {
+                                                    conn.rollback();
+                                                    return res.status(500).send("Error al registrar el cambio en el historial.");
+                                                }
+    
+                                                // Confirmar la transacción
+                                                conn.commit((err) => {
+                                                    if (err) {
+                                                        conn.rollback();
+                                                        return res.status(500).send("Error al confirmar el cambio.");
+                                                    }
+    
+                                                    res.send("Fecha de entrega actualizada correctamente con justificación.");
+                                                });
+                                            }
+                                        );
                                     }
                                 );
                             }
@@ -326,8 +453,6 @@ module.exports = {
             });
         });
     },    
-    
-    
 
     // Actualizar cantidades de productos (solo si está "Por pagar")
     updateOrderQuantity: (req, res) => {
@@ -351,7 +476,7 @@ module.exports = {
                     }
     
                     // Actualizar las cantidades
-                    const updateQueries = Detalles.map(detalle => [
+                    const updateQueries = Detalles.map((detalle) => [
                         detalle.Cantidad,
                         pedidoId,
                         detalle.ID_Producto,
@@ -395,7 +520,7 @@ module.exports = {
                 }
             );
         });
-    },
+    },    
     
 
     // Procesar pago de un pedido
@@ -405,7 +530,7 @@ module.exports = {
         const userId = req.userId;
     
         const validTransitions = {
-            "Por pagar": ["Pagado", "Pago contra entrega"]
+            "Por pagar": ["Pagado", "Pago contra entrega"],
         };
     
         if (!validTransitions["Por pagar"].includes(Estado)) {
@@ -418,9 +543,9 @@ module.exports = {
             conn.beginTransaction((err) => {
                 if (err) return res.status(500).send("Error al iniciar la transacción.");
     
-                // Verificar pedido y estado actual
+                // Obtener detalles del pedido
                 conn.query(
-                    "SELECT Total, Estado FROM Pedidos WHERE ID_Pedido = ?",
+                    "SELECT Total, Estado, ID_Usuario FROM Pedidos WHERE ID_Pedido = ?",
                     [pedidoId],
                     (err, results) => {
                         if (err || results.length === 0) {
@@ -434,51 +559,194 @@ module.exports = {
                             return res.status(400).send("El pedido ya no está disponible para el pago.");
                         }
     
-                        // Actualizar método de pago y estado
+                        // Validar stock de productos
                         conn.query(
-                            "UPDATE Pedidos SET ID_MetodoPago = ?, Estado = ? WHERE ID_Pedido = ?",
-                            [ID_MetodoPago, Estado, pedidoId],
-                            (err) => {
-                                if (err) {
+                            "SELECT ID_Producto, Cantidad FROM DetallesPedido WHERE ID_Pedido = ?",
+                            [pedidoId],
+                            (err, detalles) => {
+                                if (err || detalles.length === 0) {
                                     conn.rollback();
-                                    return res.status(500).send("Error al actualizar el pedido.");
+                                    return res.status(500).send("Error al obtener los detalles del pedido.");
                                 }
     
-                                // Crear registro en la tabla Ventas
-                                if (["Pagado", "Pago contra entrega"].includes(Estado)) {
-                                    const nuevaVenta = {
-                                        ID_Pedido: pedidoId,
-                                        TotalVenta: pedido.Total,
-                                        Estado: "En proceso",
-                                        FechaVenta: new Date(),
-                                        ID_Usuario: userId
-                                    };
+                                const stockValidationPromises = detalles.map((detalle) => {
+                                    return new Promise((resolve, reject) => {
+                                        conn.query(
+                                            "SELECT StockDisponible FROM Productos WHERE ID_Producto = ?",
+                                            [detalle.ID_Producto],
+                                            (err, results) => {
+                                                if (err || results.length === 0) {
+                                                    return reject(`Producto con ID ${detalle.ID_Producto} no encontrado.`);
+                                                }
     
-                                    conn.query("INSERT INTO Ventas SET ?", [nuevaVenta], (err) => {
-                                        if (err) {
-                                            conn.rollback();
-                                            return res.status(500).send("Error al registrar la venta.");
-                                        }
+                                                const stockDisponible = results[0].StockDisponible;
     
-                                        conn.commit((err) => {
+                                                if (detalle.Cantidad > stockDisponible) {
+                                                    return reject(
+                                                        `El producto con ID ${detalle.ID_Producto} no tiene suficiente stock.`
+                                                    );
+                                                }
+                                                resolve();
+                                            }
+                                        );
+                                    });
+                                });
+    
+                                Promise.all(stockValidationPromises)
+                                    .then(() => {
+                                        // Actualizar el estado del pedido y registrar la venta
+                                        actualizarEstadoPedido(conn, pedidoId, Estado, null, (err) => {
                                             if (err) {
                                                 conn.rollback();
-                                                return res.status(500).send("Error al confirmar el pago.");
+                                                return res
+                                                    .status(500)
+                                                    .send("Error al actualizar el estado del pedido.");
                                             }
     
-                                            res.status(201).send("Pago procesado exitosamente y venta registrada.");
-                                        });
-                                    });
-                                } else {
-                                    conn.commit((err) => {
-                                        if (err) {
-                                            conn.rollback();
-                                            return res.status(500).send("Error al confirmar el pago.");
-                                        }
+                                            if (["Pagado", "Pago contra entrega"].includes(Estado)) {
+                                                const nuevaVenta = {
+                                                    ID_Pedido: pedidoId,
+                                                    TotalVenta: pedido.Total,
+                                                    Estado: "En proceso",
+                                                    FechaVenta: new Date(),
+                                                    ID_Usuario: pedido.ID_Usuario,
+                                                };
     
-                                        res.status(200).send("Pago procesado exitosamente.");
+                                                // Insertar la venta en la tabla Ventas
+                                                conn.query("INSERT INTO Ventas SET ?", [nuevaVenta], (err, result) => {
+                                                    if (err) {
+                                                        conn.rollback();
+                                                        return res
+                                                            .status(500)
+                                                            .send("Error al registrar la venta.");
+                                                    }
+    
+                                                    const ventaId = result.insertId;
+    
+                                                    // Registrar en HistorialVentas
+                                                    conn.query(
+                                                        `INSERT INTO HistorialVentas 
+                                                            (ID_Pedido, ID_Usuario, ID_MetodoPago, FechaVenta, TotalVenta, EstadoVenta, Notas)
+                                                         VALUES (?, ?, 
+                                                            (SELECT ID_MetodoPago FROM Pedidos WHERE ID_Pedido = ?),
+                                                            ?, ?, ?, NULL)`,
+                                                        [
+                                                            pedidoId,
+                                                            pedido.ID_Usuario,
+                                                            pedidoId,
+                                                            nuevaVenta.FechaVenta,
+                                                            pedido.Total,
+                                                            nuevaVenta.Estado,
+                                                        ],
+                                                        (err) => {
+                                                            if (err) {
+                                                                conn.rollback();
+                                                                return res
+                                                                    .status(500)
+                                                                    .send("Error al registrar el historial de la venta.");
+                                                            }
+    
+                                                            // Obtener los detalles del pedido e insertar en HistorialDetallesVenta
+                                                            conn.query(
+                                                                `SELECT ID_Producto, Cantidad, PrecioUnitario, 
+                                                                    Cantidad * PrecioUnitario AS Subtotal 
+                                                                 FROM DetallesPedido WHERE ID_Pedido = ?`,
+                                                                [pedidoId],
+                                                                (err, detalles) => {
+                                                                    if (err) {
+                                                                        conn.rollback();
+                                                                        return res
+                                                                            .status(500)
+                                                                            .send("Error al obtener los detalles del pedido.");
+                                                                    }
+    
+                                                                    const detallesQuery = detalles.map((detalle) => [
+                                                                        ventaId,
+                                                                        detalle.ID_Producto,
+                                                                        detalle.Cantidad,
+                                                                        detalle.PrecioUnitario,
+                                                                        detalle.Subtotal,
+                                                                    ]);
+    
+                                                                    conn.query(
+                                                                        `INSERT INTO HistorialDetallesVenta 
+                                                                            (IdHistorialVenta, ID_Producto, Cantidad, PrecioUnitario, Subtotal)
+                                                                         VALUES ?`,
+                                                                        [detallesQuery],
+                                                                        (err) => {
+                                                                            if (err) {
+                                                                                conn.rollback();
+                                                                                return res
+                                                                                    .status(500)
+                                                                                    .send(
+                                                                                        "Error al registrar los detalles de la venta en el historial."
+                                                                                    );
+                                                                            }
+    
+                                                                            // Actualizar stock de los productos vendidos
+                                                                            const stockUpdates = detalles.map((detalle) => {
+                                                                                return new Promise((resolve, reject) => {
+                                                                                    conn.query(
+                                                                                        "UPDATE Productos SET StockDisponible = StockDisponible - ? WHERE ID_Producto = ?",
+                                                                                        [detalle.Cantidad, detalle.ID_Producto],
+                                                                                        (err) => {
+                                                                                            if (err)
+                                                                                                reject(
+                                                                                                    "Error al actualizar el stock."
+                                                                                                );
+                                                                                            resolve();
+                                                                                        }
+                                                                                    );
+                                                                                });
+                                                                            });
+    
+                                                                            Promise.all(stockUpdates)
+                                                                                .then(() => {
+                                                                                    conn.commit((err) => {
+                                                                                        if (err) {
+                                                                                            conn.rollback();
+                                                                                            return res
+                                                                                                .status(500)
+                                                                                                .send(
+                                                                                                    "Error al confirmar el pago."
+                                                                                                );
+                                                                                        }
+    
+                                                                                        res.status(201).send({
+                                                                                            message:
+                                                                                                "Pago procesado exitosamente, venta registrada, detalles sincronizados y stock actualizado.",
+                                                                                            ventaId,
+                                                                                        });
+                                                                                    });
+                                                                                })
+                                                                                .catch((err) => {
+                                                                                    conn.rollback();
+                                                                                    res.status(500).send(err);
+                                                                                });
+                                                                        }
+                                                                    );
+                                                                }
+                                                            );
+                                                        }
+                                                    );
+                                                });
+                                            } else {
+                                                conn.commit((err) => {
+                                                    if (err) {
+                                                        conn.rollback();
+                                                        return res.status(500).send("Error al confirmar el pago.");
+                                                    }
+    
+                                                    res.status(200).send("Pago procesado exitosamente.");
+                                                });
+                                            }
+                                        });
+                                    })
+                                    .catch((err) => {
+                                        console.error("Error en validación de stock:", err);
+                                        conn.rollback();
+                                        res.status(400).json({ message: err });
                                     });
-                                }
                             }
                         );
                     }
@@ -487,13 +755,16 @@ module.exports = {
         });
     },
     
+    
+        
+    
     deleteProductFromOrder: (req, res) => {
         const { pedidoId, productId } = req.params;
     
         req.getConnection((err, conn) => {
             if (err) return res.status(500).send("Error de conexión a la base de datos.");
     
-            // Verificar el estado del pedido
+            // Verificar que el pedido exista y esté en estado 'Por pagar'
             conn.query(
                 "SELECT Estado FROM Pedidos WHERE ID_Pedido = ?",
                 [pedidoId],
@@ -509,54 +780,93 @@ module.exports = {
                         return res.status(400).send("Solo puedes eliminar productos de pedidos en estado 'Por pagar'.");
                     }
     
-                    // Eliminar el producto del pedido
-                    conn.query(
-                        "DELETE FROM DetallesPedido WHERE ID_Pedido = ? AND ID_Producto = ?",
-                        [pedidoId, productId],
-                        (err) => {
-                            if (err) return res.status(500).send("Error al eliminar el producto del pedido.");
+                    conn.beginTransaction((err) => {
+                        if (err) return res.status(500).send("Error al iniciar la transacción.");
     
-                            // Actualizar el total del pedido
-                            conn.query(
-                                "UPDATE Pedidos SET Total = (SELECT SUM(Cantidad * PrecioUnitario) FROM DetallesPedido WHERE ID_Pedido = ?) WHERE ID_Pedido = ?",
-                                [pedidoId, pedidoId],
-                                (err) => {
-                                    if (err) return res.status(500).send("Error al actualizar el total del pedido.");
-    
-                                    // Obtener el nuevo total para actualizar en el historial
-                                    conn.query(
-                                        "SELECT Total FROM Pedidos WHERE ID_Pedido = ?",
-                                        [pedidoId],
-                                        (err, results) => {
-                                            if (err || results.length === 0) {
-                                                return res.status(500).send("Error al obtener el total actualizado del pedido.");
-                                            }
-    
-                                            const nuevoTotal = results[0].Total;
-    
-                                            // Actualizar el total en el historial
-                                            actualizarTotalEnHistorial(conn, pedidoId, nuevoTotal, (err) => {
-                                                if (err) return res.status(500).send("Error al actualizar el historial del pedido.");
-                                                res.send("Producto eliminado del pedido y sincronizado en el historial.");
-                                            });
-                                        }
-                                    );
+                        // Eliminar el producto del pedido en `DetallesPedido`
+                        conn.query(
+                            "DELETE FROM DetallesPedido WHERE ID_Pedido = ? AND ID_Producto = ?",
+                            [pedidoId, productId],
+                            (err) => {
+                                if (err) {
+                                    conn.rollback();
+                                    return res.status(500).send("Error al eliminar el producto del pedido.");
                                 }
-                            );
-                        }
-                    );
+    
+                                // Eliminar los registros relacionados en `HistorialDetallesVenta`
+                                conn.query(
+                                    `DELETE FROM HistorialDetallesVenta 
+                                     WHERE ID_Producto = ? AND IdHistorialVenta IN (
+                                         SELECT IdHistorialVenta FROM HistorialVentas WHERE ID_Pedido = ?
+                                     )`,
+                                    [productId, pedidoId],
+                                    (err) => {
+                                        if (err) {
+                                            conn.rollback();
+                                            return res.status(500).send("Error al actualizar el historial de detalles de la venta.");
+                                        }
+    
+                                        // Recalcular el total del pedido en `Pedidos`
+                                        conn.query(
+                                            "UPDATE Pedidos SET Total = (SELECT COALESCE(SUM(Cantidad * PrecioUnitario), 0) FROM DetallesPedido WHERE ID_Pedido = ?) WHERE ID_Pedido = ?",
+                                            [pedidoId, pedidoId],
+                                            (err) => {
+                                                if (err) {
+                                                    conn.rollback();
+                                                    return res.status(500).send("Error al actualizar el total del pedido.");
+                                                }
+    
+                                                // Actualizar el total en el historial `HistorialPedidos`
+                                                conn.query(
+                                                    "SELECT Total FROM Pedidos WHERE ID_Pedido = ?",
+                                                    [pedidoId],
+                                                    (err, results) => {
+                                                        if (err || results.length === 0) {
+                                                            conn.rollback();
+                                                            return res.status(500).send("Error al obtener el total actualizado del pedido.");
+                                                        }
+    
+                                                        const nuevoTotal = results[0].Total;
+    
+                                                        conn.query(
+                                                            "UPDATE HistorialPedidos SET Total = ? WHERE ID_Pedido = ?",
+                                                            [nuevoTotal, pedidoId],
+                                                            (err) => {
+                                                                if (err) {
+                                                                    conn.rollback();
+                                                                    return res.status(500).send("Error al actualizar el historial del pedido.");
+                                                                }
+    
+                                                                // Confirmar la transacción
+                                                                conn.commit((err) => {
+                                                                    if (err) {
+                                                                        conn.rollback();
+                                                                        return res.status(500).send("Error al confirmar la eliminación del producto.");
+                                                                    }
+    
+                                                                    res.status(200).send("Producto eliminado del pedido y sincronizado en el historial.");
+                                                                });
+                                                            }
+                                                        );
+                                                    }
+                                                );
+                                            }
+                                        );
+                                    }
+                                );
+                            }
+                        );
+                    });
                 }
             );
         });
-    },
-    
-    
+    },       
     
     cancelOrder: (req, res) => {
         const pedidoId = req.params.id;
-        const { Justificacion } = req.body; // Obtener la justificación de la solicitud
+        const { Justificacion } = req.body; // Justificación proporcionada por el usuario
     
-        // Verificar que la justificación no esté vacía
+        // Validar que la justificación no esté vacía
         if (!Justificacion || Justificacion.trim() === "") {
             return res.status(400).send("La justificación es obligatoria para cancelar el pedido.");
         }
@@ -564,7 +874,7 @@ module.exports = {
         req.getConnection((err, conn) => {
             if (err) return res.status(500).send("Error de conexión a la base de datos.");
     
-            // Obtener los detalles necesarios del pedido
+            // Obtener detalles del pedido antes de realizar actualizaciones
             conn.query(
                 "SELECT FechaPedido, FechaEntrega, Estado, Total, ID_Usuario FROM Pedidos WHERE ID_Pedido = ?",
                 [pedidoId],
@@ -578,43 +888,47 @@ module.exports = {
                         return res.status(400).send("Solo puedes cancelar pedidos en estado 'Por pagar'.");
                     }
     
-                    // Actualizar el estado del pedido a 'Cancelado'
-                    conn.query("UPDATE Pedidos SET Estado = 'Cancelado' WHERE ID_Pedido = ?", [pedidoId], (err) => {
-                        if (err) return res.status(500).send("Error al cancelar el pedido.");
+                    conn.beginTransaction((err) => {
+                        if (err) return res.status(500).send("Error al iniciar la transacción.");
     
-                        // Insertar en el historial
-                        const historial = {
-                            ID_Pedido: pedidoId,
-                            ID_Usuario: pedido.ID_Usuario,
-                            FechaPedido: pedido.FechaPedido,
-                            FechaEntrega: pedido.FechaEntrega,
-                            EstadoPedido: "Cancelado",
-                            Total: pedido.Total,
-                            Observaciones: Justificacion.trim(),
-                        };
-    
+                        // Actualizar el estado del pedido a "Cancelado"
                         conn.query(
-                            "INSERT INTO HistorialPedidos (ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, EstadoPedido, Total, Observaciones) VALUES (?, ?, ?, ?, ?, ?, ?)",
-                            [
-                                historial.ID_Pedido,
-                                historial.ID_Usuario,
-                                historial.FechaPedido,
-                                historial.FechaEntrega,
-                                historial.EstadoPedido,
-                                historial.Total,
-                                historial.Observaciones,
-                            ],
+                            "UPDATE Pedidos SET Estado = 'Cancelado' WHERE ID_Pedido = ?",
+                            [pedidoId],
                             (err) => {
-                                if (err) return res.status(500).send("Error al registrar el historial del cambio.");
+                                if (err) {
+                                    conn.rollback();
+                                    return res.status(500).send("Error al cancelar el pedido.");
+                                }
     
-                                // Responder con éxito
-                                res.send("Pedido cancelado exitosamente y registrado en el historial.");
+                                // Actualizar el historial con la observación
+                                conn.query(
+                                    "UPDATE HistorialPedidos SET Observaciones = ? WHERE ID_Pedido = ?",
+                                    [`Pedido cancelado por el usuario. Justificación: ${Justificacion.trim()}`, pedidoId],
+                                    (err) => {
+                                        if (err) {
+                                            conn.rollback();
+                                            return res.status(500).send("Error al actualizar el historial del pedido.");
+                                        }
+    
+                                        // Confirmar la transacción
+                                        conn.commit((err) => {
+                                            if (err) {
+                                                conn.rollback();
+                                                return res.status(500).send("Error al confirmar la cancelación del pedido.");
+                                            }
+    
+                                            res.status(200).send("Pedido cancelado exitosamente y registrado en el historial.");
+                                        });
+                                    }
+                                );
                             }
                         );
                     });
                 }
             );
         });
-    },    
+    },
+     
     
 };

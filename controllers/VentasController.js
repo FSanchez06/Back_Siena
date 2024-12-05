@@ -85,27 +85,81 @@ module.exports = {
     updateSaleStatus: (req, res) => {
         const saleId = req.params.id;
         const { Estado } = req.body;
-
-        // Validar transiciones de estado
+    
+        // Validar transiciones de estado permitidas
         const validTransitions = {
             "En proceso": ["Enviando", "Cancelada", "Reembolsada"],
             "Enviando": ["Entregado", "Cancelada"],
-            "En proceso": ["Reembolsada"], // Si hay problemas con el pedido
+            "Entregado": ["Reembolsada"], // Si hay problemas posteriores
         };
-
-        if (!validTransitions[Estado]) {
-            return res.status(400).send("Transición de estado inválida.");
-        }
-
+    
         req.getConnection((err, conn) => {
             if (err) return res.status(500).send("Error de conexión a la base de datos.");
-
-            conn.query("UPDATE Ventas SET Estado = ? WHERE ID_Venta = ?", [Estado, saleId], (err) => {
-                if (err) return res.status(500).send("Error al actualizar el estado de la venta.");
-                res.send("Estado de la venta actualizado correctamente.");
+    
+            conn.beginTransaction((err) => {
+                if (err) return res.status(500).send("Error al iniciar la transacción.");
+    
+                // Actualizar el estado en la tabla `Ventas`
+                conn.query(
+                    "UPDATE Ventas SET Estado = ? WHERE ID_Venta = ?",
+                    [Estado, saleId],
+                    (err, result) => {
+                        if (err) {
+                            conn.rollback();
+                            return res.status(500).send("Error al actualizar el estado de la venta.");
+                        }
+    
+                        if (result.affectedRows === 0) {
+                            conn.rollback();
+                            return res.status(404).send("Venta no encontrada.");
+                        }
+    
+                        // Obtener el ID_Pedido para reflejar el cambio en `HistorialVentas`
+                        conn.query(
+                            "SELECT ID_Pedido FROM Ventas WHERE ID_Venta = ?",
+                            [saleId],
+                            (err, results) => {
+                                if (err || results.length === 0) {
+                                    conn.rollback();
+                                    return res.status(500).send("Error al obtener los detalles de la venta.");
+                                }
+    
+                                const { ID_Pedido } = results[0];
+    
+                                // Actualizar el estado y las notas en `HistorialVentas`
+                                const notas = Estado === "Cancelada" || Estado === "Reembolsada"
+                                    ? `Venta ${Estado} el ${new Date().toISOString()}`
+                                    : "Estado actualizado automáticamente";
+    
+                                conn.query(
+                                    `UPDATE HistorialVentas 
+                                     SET EstadoVenta = ?, Notas = ? 
+                                     WHERE ID_Pedido = ?`,
+                                    [Estado, notas, ID_Pedido],
+                                    (err) => {
+                                        if (err) {
+                                            conn.rollback();
+                                            return res.status(500).send("Error al actualizar el historial de ventas.");
+                                        }
+    
+                                        conn.commit((err) => {
+                                            if (err) {
+                                                conn.rollback();
+                                                return res.status(500).send("Error al confirmar los cambios.");
+                                            }
+    
+                                            res.status(200).send("Estado de la venta y el historial actualizado correctamente.");
+                                        });
+                                    }
+                                );
+                            }
+                        );
+                    }
+                );
             });
         });
     },
+    
     
     // Solicitar reembolso
     requestRefund: (req, res) => {
