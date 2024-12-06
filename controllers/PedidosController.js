@@ -201,7 +201,14 @@ module.exports = {
     
                                             conn.query(
                                                 `INSERT INTO HistorialPedidos (ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, EstadoPedido, Total, Observaciones)
-                                                 SELECT ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, Estado, Total, NULL
+                                                 SELECT ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, 
+                                                        CASE 
+                                                            WHEN Estado = 'Por pagar' THEN 'Pendiente'
+                                                            WHEN Estado = 'Pagado' THEN 'Enviado'
+                                                            WHEN Estado = 'Pago contra entrega' THEN 'Enviado'
+                                                            ELSE 'Pendiente'
+                                                        END AS EstadoPedido,
+                                                        Total, NULL
                                                  FROM Pedidos WHERE ID_Pedido = ?`,
                                                 [pedidoId],
                                                 (err) => {
@@ -210,7 +217,6 @@ module.exports = {
                                                         conn.rollback();
                                                         return res.status(500).json({ message: "Error al registrar el historial del pedido.", error: err.sqlMessage || err.message });
                                                     }
-    
                                                     console.log("Pedido registrado en el historial correctamente.");
     
                                                     conn.commit((err) => {
