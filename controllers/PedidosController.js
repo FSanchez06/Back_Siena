@@ -590,7 +590,7 @@ module.exports = {
     
                         // Validar stock de productos
                         conn.query(
-                            "SELECT ID_Producto, Cantidad FROM DetallesPedido WHERE ID_Pedido = ?",
+                            "SELECT ID_Producto, Cantidad, PrecioUnitario FROM DetallesPedido WHERE ID_Pedido = ?",
                             [pedidoId],
                             (err, detalles) => {
                                 if (err || detalles.length === 0) {
@@ -633,62 +633,90 @@ module.exports = {
                                                     return res.status(500).send("Error al actualizar el estado del pedido.");
                                                 }
     
-                                                // Insertar en HistorialVentas
+                                                // Insertar en la tabla Ventas
                                                 const nuevaVenta = {
+                                                    FechaVenta: new Date(),
                                                     ID_Pedido: pedidoId,
                                                     ID_Usuario: pedido.ID_Usuario,
-                                                    ID_MetodoPago: ID_MetodoPago,
-                                                    FechaVenta: new Date(),
                                                     TotalVenta: pedido.Total,
-                                                    EstadoVenta: "Completada",
-                                                    Notas: null,
+                                                    Estado: "En proceso", // Estado inicial de la venta
                                                 };
     
                                                 conn.query(
-                                                    "INSERT INTO HistorialVentas SET ?",
+                                                    "INSERT INTO Ventas SET ?",
                                                     [nuevaVenta],
                                                     (err, result) => {
                                                         if (err) {
                                                             conn.rollback();
                                                             return res
                                                                 .status(500)
-                                                                .send("Error al registrar la venta en HistorialVentas.");
+                                                                .send("Error al registrar la venta en la tabla Ventas.");
                                                         }
     
-                                                        // Actualizar stock de los productos vendidos
-                                                        const stockUpdates = detalles.map((detalle) => {
-                                                            return new Promise((resolve, reject) => {
-                                                                conn.query(
-                                                                    "UPDATE Productos SET StockDisponible = StockDisponible - ? WHERE ID_Producto = ?",
-                                                                    [detalle.Cantidad, detalle.ID_Producto],
-                                                                    (err) => {
-                                                                        if (err) reject("Error al actualizar el stock.");
-                                                                        resolve();
-                                                                    }
-                                                                );
-                                                            });
-                                                        });
+                                                        const ventaId = result.insertId;
     
-                                                        Promise.all(stockUpdates)
-                                                            .then(() => {
-                                                                conn.commit((err) => {
-                                                                    if (err) {
-                                                                        conn.rollback();
-                                                                        return res
-                                                                            .status(500)
-                                                                            .send("Error al confirmar el pago.");
-                                                                    }
+                                                        // Insertar en la tabla HistorialVentas
+                                                        const historialVenta = {
+                                                            ID_Pedido: pedidoId,
+                                                            ID_Usuario: pedido.ID_Usuario,
+                                                            ID_MetodoPago,
+                                                            FechaVenta: new Date(),
+                                                            TotalVenta: pedido.Total,
+                                                            EstadoVenta: "En proceso", // Estado inicial del historial de ventas
+                                                            Notas: null,
+                                                        };
     
-                                                                    res.status(201).send({
-                                                                        message:
-                                                                            "Pago procesado exitosamente, venta registrada en HistorialVentas y stock actualizado.",
+                                                        conn.query(
+                                                            "INSERT INTO HistorialVentas SET ?",
+                                                            [historialVenta],
+                                                            (err) => {
+                                                                if (err) {
+                                                                    conn.rollback();
+                                                                    return res
+                                                                        .status(500)
+                                                                        .send("Error al registrar en el historial de ventas.");
+                                                                }
+    
+                                                                // Actualizar stock de los productos vendidos
+                                                                const stockUpdates = detalles.map((detalle) => {
+                                                                    return new Promise((resolve, reject) => {
+                                                                        conn.query(
+                                                                            "UPDATE Productos SET StockDisponible = StockDisponible - ? WHERE ID_Producto = ?",
+                                                                            [detalle.Cantidad, detalle.ID_Producto],
+                                                                            (err) => {
+                                                                                if (err)
+                                                                                    reject(
+                                                                                        "Error al actualizar el stock de los productos."
+                                                                                    );
+                                                                                resolve();
+                                                                            }
+                                                                        );
                                                                     });
                                                                 });
-                                                            })
-                                                            .catch((err) => {
-                                                                conn.rollback();
-                                                                res.status(500).send(err);
-                                                            });
+    
+                                                                Promise.all(stockUpdates)
+                                                                    .then(() => {
+                                                                        conn.commit((err) => {
+                                                                            if (err) {
+                                                                                conn.rollback();
+                                                                                return res
+                                                                                    .status(500)
+                                                                                    .send("Error al confirmar la transacción.");
+                                                                            }
+    
+                                                                            res.status(201).send({
+                                                                                message:
+                                                                                    "Pago procesado exitosamente, venta registrada y stock actualizado.",
+                                                                                ventaId,
+                                                                            });
+                                                                        });
+                                                                    })
+                                                                    .catch((err) => {
+                                                                        conn.rollback();
+                                                                        res.status(500).send(err);
+                                                                    });
+                                                            }
+                                                        );
                                                     }
                                                 );
                                             }
@@ -705,7 +733,8 @@ module.exports = {
                 );
             });
         });
-    },    
+    },
+    
         
     
     deleteProductFromOrder: (req, res) => {
