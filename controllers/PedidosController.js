@@ -590,7 +590,7 @@ module.exports = {
     
                         // Validar stock de productos
                         conn.query(
-                            "SELECT ID_Producto, Cantidad FROM DetallesPedido WHERE ID_Pedido = ?",
+                            "SELECT ID_Producto, Cantidad, PrecioUnitario FROM DetallesPedido WHERE ID_Pedido = ?",
                             [pedidoId],
                             (err, detalles) => {
                                 if (err || detalles.length === 0) {
@@ -630,9 +630,7 @@ module.exports = {
                                             (err) => {
                                                 if (err) {
                                                     conn.rollback();
-                                                    return res
-                                                        .status(500)
-                                                        .send("Error al actualizar el estado del pedido.");
+                                                    return res.status(500).send("Error al actualizar el estado del pedido.");
                                                 }
     
                                                 // Insertar en la tabla Ventas
@@ -641,7 +639,7 @@ module.exports = {
                                                     ID_Pedido: pedidoId,
                                                     ID_Usuario: pedido.ID_Usuario,
                                                     TotalVenta: pedido.Total,
-                                                    Estado: "Completada",
+                                                    Estado: "En proceso", // Estado inicial de la venta
                                                 };
     
                                                 conn.query(
@@ -657,16 +655,26 @@ module.exports = {
     
                                                         const ventaId = result.insertId;
     
-                                                        // Actualizar el estado en la tabla HistorialPedidos
+                                                        // Insertar en la tabla HistorialVentas
+                                                        const historialVenta = {
+                                                            ID_Pedido: pedidoId,
+                                                            ID_Usuario: pedido.ID_Usuario,
+                                                            ID_MetodoPago,
+                                                            FechaVenta: new Date(),
+                                                            TotalVenta: pedido.Total,
+                                                            EstadoVenta: "En proceso", // Estado inicial del historial de ventas
+                                                            Notas: null,
+                                                        };
+    
                                                         conn.query(
-                                                            "UPDATE HistorialPedidos SET EstadoPedido = ? WHERE ID_Pedido = ?",
-                                                            [Estado, pedidoId],
+                                                            "INSERT INTO HistorialVentas SET ?",
+                                                            [historialVenta],
                                                             (err) => {
                                                                 if (err) {
                                                                     conn.rollback();
                                                                     return res
                                                                         .status(500)
-                                                                        .send("Error al actualizar el estado en HistorialPedidos.");
+                                                                        .send("Error al registrar en el historial de ventas.");
                                                                 }
     
                                                                 // Actualizar stock de los productos vendidos
@@ -726,7 +734,6 @@ module.exports = {
             });
         });
     },
-    
     
         
     
