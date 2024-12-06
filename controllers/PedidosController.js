@@ -291,7 +291,10 @@ module.exports = {
             const query =
                 userRole === 3
                     ? "SELECT * FROM Pedidos WHERE ID_Usuario = ?"
-                    : "SELECT * FROM Pedidos";
+                    : `SELECT p.*, u.Nombre, u.Email, u.Telefono, u.Ciudad, u.CodPostal, u.Direccion, mp.Nombre AS MetodoPago
+                FROM Pedidos p
+                JOIN Usuario u ON p.ID_Usuario = u.ID_Usuario
+                LEFT JOIN MetodoPago mp ON p.ID_MetodoPago = mp.ID_MetodoPago`;
 
             const params = userRole === 3 ? [userId] : [];
 
@@ -404,9 +407,9 @@ module.exports = {
             conn.beginTransaction((err) => {
                 if (err) return res.status(500).send("Error al iniciar la transacción.");
     
-                // Obtener la fecha actual de entrega antes de la actualización
+                // Obtener la fecha del pedido y el estado actual
                 conn.query(
-                    "SELECT FechaEntrega, Estado FROM Pedidos WHERE ID_Pedido = ?",
+                    "SELECT FechaPedido, FechaEntrega, Estado FROM Pedidos WHERE ID_Pedido = ?",
                     [pedidoId],
                     (err, results) => {
                         if (err || results.length === 0) {
@@ -415,7 +418,23 @@ module.exports = {
                         }
     
                         const pedido = results[0];
+                        const fechaPedido = new Date(pedido.FechaPedido);
                         const fechaAnterior = pedido.FechaEntrega;
+    
+                        // Validar límites de la nueva fecha de entrega
+                        const nuevaFechaEntrega = new Date(FechaEntrega);
+                        const fechaMinima = new Date(fechaPedido);
+                        const fechaMaxima = new Date(fechaPedido);
+    
+                        fechaMinima.setDate(fechaMinima.getDate() + 10); // 10 días después del pedido
+                        fechaMaxima.setMonth(fechaMaxima.getMonth() + 6); // 6 meses después del pedido
+    
+                        if (nuevaFechaEntrega < fechaMinima || nuevaFechaEntrega > fechaMaxima) {
+                            conn.rollback();
+                            return res.status(400).send(
+                                `La fecha de entrega debe estar entre ${fechaMinima.toISOString().split('T')[0]} y ${fechaMaxima.toISOString().split('T')[0]}.`
+                            );
+                        }
     
                         // Actualizar la fecha de entrega en la tabla `Pedidos`
                         conn.query(
@@ -440,21 +459,11 @@ module.exports = {
                                         }
     
                                         // Registrar el cambio en el historial con la justificación
-                                        const historial = {
-                                            ID_Pedido: pedidoId,
-                                            Cambio: "Cambio de fecha de entrega",
-                                            ValorAnterior: fechaAnterior, // Fecha anterior obtenida
-                                            ValorNuevo: FechaEntrega,
-                                            FechaCambio: new Date(),
-                                            ID_Usuario: adminId,
-                                            Justificacion: Justificacion.trim(),
-                                        };
-    
                                         conn.query(
                                             `INSERT INTO HistorialPedidos (ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, EstadoPedido, Total, Observaciones)
                                              SELECT ID_Pedido, ID_Usuario, FechaPedido, ?, EstadoPedido, Total, ? 
                                              FROM HistorialPedidos WHERE ID_Pedido = ?`,
-                                            [FechaEntrega, Justificacion, pedidoId],
+                                            [FechaEntrega, Justificacion.trim(), pedidoId],
                                             (err) => {
                                                 if (err) {
                                                     conn.rollback();
@@ -480,7 +489,8 @@ module.exports = {
                 );
             });
         });
-    },    
+    },
+    
 
     // Actualizar cantidades de productos (solo si está "Por pagar")
     updateOrderQuantity: (req, res) => {
