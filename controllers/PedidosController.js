@@ -656,7 +656,7 @@ module.exports = {
                                             ID_MetodoPago,
                                             FechaVenta: new Date(),
                                             TotalVenta: pedido.Total,
-                                            EstadoVenta: "En proceso",
+                                            EstadoVenta: "Completada",
                                             Notas: null,
                                         };
     
