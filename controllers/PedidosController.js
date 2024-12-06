@@ -78,10 +78,12 @@ module.exports = {
     
         // Validaciones iniciales
         if (!Detalles || !Array.isArray(Detalles) || Detalles.length === 0) {
+            console.error("Detalles inválidos o vacíos:", Detalles);
             return res.status(400).json({ message: "El pedido debe contener al menos un detalle." });
         }
     
         if (!FechaEntrega) {
+            console.error("Fecha de entrega no proporcionada:", FechaEntrega);
             return res.status(400).json({ message: "Debe seleccionar una fecha de entrega." });
         }
     
@@ -92,6 +94,9 @@ module.exports = {
         fechaMaxima.setMonth(fechaMaxima.getMonth() + 3);
     
         if (fechaEntrega < fechaMinima || fechaEntrega > fechaMaxima) {
+            console.error(
+                `Fecha de entrega fuera del rango permitido. Fecha mínima: ${fechaMinima}, Fecha máxima: ${fechaMaxima}`
+            );
             return res.status(400).json({
                 message: `La fecha de entrega debe estar entre ${fechaMinima.toISOString().split('T')[0]} y ${fechaMaxima.toISOString().split('T')[0]}.`,
             });
@@ -102,14 +107,17 @@ module.exports = {
             ID_MetodoPago: null,
             Total: 0,
             Estado: "Por pagar",
-            FechaEntrega,
+            FechaEntrega: fechaEntrega,
         };
     
         req.getConnection((err, conn) => {
             if (err) {
                 console.error("Error de conexión a la base de datos:", err);
-                return res.status(500).json({ message: "Error de conexión a la base de datos." });
+                return res.status(500).json({ message: "Error de conexión a la base de datos.", error: err });
             }
+    
+            console.log("Conexión a la base de datos establecida.");
+            console.log("Validando stock de productos...");
     
             // Validar stock disponible antes de proceder
             const validationPromises = Detalles.map((detalle) => {
@@ -118,10 +126,21 @@ module.exports = {
                         "SELECT StockDisponible FROM Productos WHERE ID_Producto = ?",
                         [detalle.ID_Producto],
                         (err, results) => {
-                            if (err || results.length === 0) return reject(`Producto con ID ${detalle.ID_Producto} no encontrado.`);
+                            if (err) {
+                                console.error("Error al validar stock:", err);
+                                return reject(err);
+                            }
+    
+                            if (results.length === 0) {
+                                console.error(`Producto con ID ${detalle.ID_Producto} no encontrado.`);
+                                return reject(`Producto con ID ${detalle.ID_Producto} no encontrado.`);
+                            }
+    
                             const stockDisponible = results[0].StockDisponible;
+                            console.log(`Producto ${detalle.ID_Producto}: Stock disponible: ${stockDisponible}`);
     
                             if (detalle.Cantidad > stockDisponible) {
+                                console.error(`Producto con ID ${detalle.ID_Producto} no tiene suficiente stock.`);
                                 return reject(`El producto con ID ${detalle.ID_Producto} no tiene suficiente stock.`);
                             }
                             resolve();
@@ -132,21 +151,22 @@ module.exports = {
     
             Promise.all(validationPromises)
                 .then(() => {
-                    // Continuar con la creación del pedido si la validación es exitosa
+                    console.log("Todos los productos tienen stock suficiente. Creando pedido...");
                     conn.beginTransaction((err) => {
                         if (err) {
                             console.error("Error al iniciar la transacción:", err);
-                            return res.status(500).json({ message: "Error al iniciar la transacción." });
+                            return res.status(500).json({ message: "Error al iniciar la transacción.", error: err });
                         }
     
                         conn.query("INSERT INTO Pedidos SET ?", [newOrder], (err, result) => {
                             if (err) {
                                 console.error("Error al insertar pedido:", err.sqlMessage || err.message);
                                 conn.rollback();
-                                return res.status(500).json({ message: "Error al crear el pedido." });
+                                return res.status(500).json({ message: "Error al crear el pedido.", error: err.sqlMessage || err.message });
                             }
     
                             const pedidoId = result.insertId;
+                            console.log(`Pedido creado con ID: ${pedidoId}`);
     
                             const detallesQuery = Detalles.map((detalle) => [
                                 pedidoId,
@@ -162,8 +182,10 @@ module.exports = {
                                     if (err) {
                                         console.error("Error al insertar detalles del pedido:", err.sqlMessage || err.message);
                                         conn.rollback();
-                                        return res.status(500).json({ message: "Error al crear los detalles del pedido." });
+                                        return res.status(500).json({ message: "Error al crear los detalles del pedido.", error: err.sqlMessage || err.message });
                                     }
+    
+                                    console.log("Detalles del pedido insertados correctamente.");
     
                                     conn.query(
                                         "UPDATE Pedidos SET Total = (SELECT SUM(Cantidad * PrecioUnitario) FROM DetallesPedido WHERE ID_Pedido = ?) + ? WHERE ID_Pedido = ?",
@@ -172,8 +194,10 @@ module.exports = {
                                             if (err) {
                                                 console.error("Error al actualizar el total del pedido:", err.sqlMessage || err.message);
                                                 conn.rollback();
-                                                return res.status(500).json({ message: "Error al calcular el total del pedido." });
+                                                return res.status(500).json({ message: "Error al calcular el total del pedido.", error: err.sqlMessage || err.message });
                                             }
+    
+                                            console.log("Total del pedido actualizado correctamente.");
     
                                             conn.query(
                                                 `INSERT INTO HistorialPedidos (ID_Pedido, ID_Usuario, FechaPedido, FechaEntrega, EstadoPedido, Total, Observaciones)
@@ -184,26 +208,22 @@ module.exports = {
                                                     if (err) {
                                                         console.error("Error al insertar en historial del pedido:", err.sqlMessage || err.message);
                                                         conn.rollback();
-                                                        return res.status(500).json({ message: "Error al registrar el historial del pedido." });
+                                                        return res.status(500).json({ message: "Error al registrar el historial del pedido.", error: err.sqlMessage || err.message });
                                                     }
     
-                                                    insertarEnHistorialDetalles(conn, pedidoId, Detalles, (err) => {
+                                                    console.log("Pedido registrado en el historial correctamente.");
+    
+                                                    conn.commit((err) => {
                                                         if (err) {
-                                                            console.error("Error al sincronizar detalles en el historial:", err);
+                                                            console.error("Error al confirmar la transacción:", err);
                                                             conn.rollback();
-                                                            return res.status(500).json({ message: "Error al sincronizar detalles en el historial." });
+                                                            return res.status(500).json({ message: "Error al confirmar la transacción.", error: err });
                                                         }
     
-                                                        conn.commit((err) => {
-                                                            if (err) {
-                                                                console.error("Error al confirmar la transacción:", err);
-                                                                conn.rollback();
-                                                                return res.status(500).json({ message: "Error al confirmar la transacción." });
-                                                            }
-    
-                                                            res.status(201).json({
-                                                                message: "Pedido creado exitosamente y registrado en el historial.",
-                                                            });
+                                                        console.log("Pedido creado exitosamente y registrado en el historial.");
+                                                        res.status(201).json({
+                                                            message: "Pedido creado exitosamente y registrado en el historial.",
+                                                            pedidoId,
                                                         });
                                                     });
                                                 }
@@ -220,9 +240,8 @@ module.exports = {
                     res.status(400).json({ message: err });
                 });
         });
-        console.log("Datos recibidos en el controlador:", req.body);
-
     },
+    
     
     
     // Obtener un pedido por ID
