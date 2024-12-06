@@ -900,7 +900,10 @@ module.exports = {
         }
     
         req.getConnection((err, conn) => {
-            if (err) return res.status(500).send("Error de conexión a la base de datos.");
+            if (err) {
+                console.error("Error de conexión a la base de datos:", err);
+                return res.status(500).send("Error de conexión a la base de datos.");
+            }
     
             // Obtener detalles del pedido antes de realizar actualizaciones
             conn.query(
@@ -908,16 +911,22 @@ module.exports = {
                 [pedidoId],
                 (err, results) => {
                     if (err || results.length === 0) {
+                        console.error("Pedido no encontrado o error en la consulta:", err);
                         return res.status(404).send("Pedido no encontrado.");
                     }
     
                     const pedido = results[0];
+    
+                    // Verificar que el pedido esté en estado 'Por pagar'
                     if (pedido.Estado !== "Por pagar") {
                         return res.status(400).send("Solo puedes cancelar pedidos en estado 'Por pagar'.");
                     }
     
                     conn.beginTransaction((err) => {
-                        if (err) return res.status(500).send("Error al iniciar la transacción.");
+                        if (err) {
+                            console.error("Error al iniciar la transacción:", err);
+                            return res.status(500).send("Error al iniciar la transacción.");
+                        }
     
                         // Actualizar el estado del pedido a "Cancelado"
                         conn.query(
@@ -925,16 +934,18 @@ module.exports = {
                             [pedidoId],
                             (err) => {
                                 if (err) {
+                                    console.error("Error al actualizar el estado del pedido:", err);
                                     conn.rollback();
                                     return res.status(500).send("Error al cancelar el pedido.");
                                 }
     
-                                // Actualizar el historial con la observación
+                                // Actualizar el historial con la observación y cambiar el estado del historial a "Cancelado"
                                 conn.query(
-                                    "UPDATE HistorialPedidos SET Observaciones = ? WHERE ID_Pedido = ?",
+                                    "UPDATE HistorialPedidos SET Observaciones = ?, EstadoPedido = 'Cancelado' WHERE ID_Pedido = ?",
                                     [`Pedido cancelado por el usuario. Justificación: ${Justificacion.trim()}`, pedidoId],
                                     (err) => {
                                         if (err) {
+                                            console.error("Error al actualizar el historial del pedido:", err);
                                             conn.rollback();
                                             return res.status(500).send("Error al actualizar el historial del pedido.");
                                         }
@@ -942,10 +953,12 @@ module.exports = {
                                         // Confirmar la transacción
                                         conn.commit((err) => {
                                             if (err) {
+                                                console.error("Error al confirmar la transacción:", err);
                                                 conn.rollback();
                                                 return res.status(500).send("Error al confirmar la cancelación del pedido.");
                                             }
     
+                                            console.log("Pedido cancelado exitosamente y registrado en el historial.");
                                             res.status(200).send("Pedido cancelado exitosamente y registrado en el historial.");
                                         });
                                     }
@@ -956,7 +969,7 @@ module.exports = {
                 }
             );
         });
-    },
+    },    
      
     
 };
