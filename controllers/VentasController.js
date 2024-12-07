@@ -49,7 +49,7 @@ module.exports = {
                         V.FechaVenta AS "Fecha Venta",
                         V.ID_Pedido,
                         V.TotalVenta,
-                        V.Estado AS "Estado Venta",
+                        V.Estado,
                         U.ID_Usuario,
                         U.Nombre AS "NombreUsuario",
                         U.Email,
