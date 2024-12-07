@@ -18,7 +18,7 @@ router.get("/ventas/:id", authenticateToken, getSaleById);
 router.get("/ventas", authenticateToken, checkRole([3]), getUserSales);
 
 // Obtener todas las ventas (Admin, Empleado)
-router.get("/ventas/todas", authenticateToken, checkRole([1, 2]), getAllSales);
+router.get("/ventas/todas", getAllSales);
 
 // Obtener detalles de un pedido asociado a una venta
 router.get("/ventas/:id/detalles", authenticateToken, getSaleDetails);
