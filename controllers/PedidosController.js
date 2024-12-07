@@ -300,7 +300,7 @@ module.exports = {
     u.Ciudad,
     u.CodPostal,
     u.Direccion,
-    mp.Nombre AS MetodoPago,
+    mp.ID_MetodoPago AS MetodoPago,
     p.FechaPedido,
     p.Total,
     p.Estado,
