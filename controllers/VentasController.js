@@ -117,11 +117,14 @@ module.exports = {
     
         // Validar transiciones de estado permitidas
         const validTransitions = {
-            "En proceso": ["Enviando", "Cancelada", "Reembolsada"],
-            "Enviando": ["Entregado", "Cancelada"],
-            "Entregado": ["Reembolsada"], // Si hay problemas posteriores
-        };
-    
+            "En proceso": ["Enviando"],
+            "Enviando": ["Entregado"],
+            "Entregado": [], // No permite cambios
+          };
+          
+          if (!validTransitions[currentState].includes(newState)) {
+            return res.status(400).send("Transición de estado no permitida.");
+          }
         req.getConnection((err, conn) => {
             if (err) return res.status(500).send("Error de conexión a la base de datos.");
     
