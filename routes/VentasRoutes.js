@@ -4,7 +4,6 @@ const {
     getSaleById,
     getUserSales,
     updateSaleStatus,
-    getAllSales,
     requestRefund,
     getSaleDetails,
 } = require("../controllers/VentasController");
@@ -14,11 +13,8 @@ const { checkRole } = require("../Middlewares/roleMiddleware");
 // Obtener una venta por ID (Admin, Empleado, Cliente propietario)
 router.get("/ventas/:id", authenticateToken, getSaleById);
 
-// Obtener todas las ventas de un usuario (Clientes: solo sus propias ventas)
+// Obtener todas las ventas de un usuario (Clientes: solo sus propias ventas Admin/Empleado todas las ventas)
 router.get("/ventas", authenticateToken, checkRole([3]), getUserSales);
-
-// Obtener todas las ventas (Admin, Empleado)
-router.get("/ventas/todas", getAllSales);
 
 // Obtener detalles de un pedido asociado a una venta
 router.get("/ventas/:id/detalles", authenticateToken, getSaleDetails);
