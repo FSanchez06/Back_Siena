@@ -14,7 +14,7 @@ const { checkRole } = require("../Middlewares/roleMiddleware");
 router.get("/ventas/:id", authenticateToken, getSaleById);
 
 // Obtener todas las ventas de un usuario (Clientes: solo sus propias ventas Admin/Empleado todas las ventas)
-router.get("/ventas", authenticateToken, checkRole([3]), getUserSales);
+router.get("/ventas", authenticateToken, checkRole([1, 2, 3]), getUserSales);
 
 // Obtener detalles de un pedido asociado a una venta
 router.get("/ventas/:id/detalles", authenticateToken, getSaleDetails);
