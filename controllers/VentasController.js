@@ -51,7 +51,7 @@ module.exports = {
                         V.TotalVenta,
                         V.Estado AS "Estado Venta",
                         U.ID_Usuario,
-                        U.Nombre AS "Nombre Usuario",
+                        U.Nombre AS "NombreUsuario",
                         U.Email,
                         U.Telefono,
                         U.Ciudad,
