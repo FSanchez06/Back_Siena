@@ -153,36 +153,13 @@ module.exports = {
                             return res.status(404).send("Venta no encontrada.");
                         }
     
-                        // Obtener el ID_Pedido para actualizar el historial
-                        conn.query("SELECT ID_Pedido FROM Ventas WHERE ID_Venta = ?", [saleId], (err, results) => {
-                            if (err || results.length === 0) {
+                        conn.commit((err) => {
+                            if (err) {
                                 conn.rollback();
-                                return res.status(500).send("Error al obtener los detalles de la venta.");
+                                return res.status(500).send("Error al confirmar los cambios.");
                             }
     
-                            const { ID_Pedido } = results[0];
-    
-                            // Registrar el cambio en el historial de ventas
-                            const notas = `Estado actualizado a "${Estado}" el ${new Date().toISOString()}`;
-                            conn.query(
-                                "INSERT INTO HistorialVentas (ID_Pedido, EstadoVenta, Notas) VALUES (?, ?, ?)",
-                                [ID_Pedido, Estado, notas],
-                                (err) => {
-                                    if (err) {
-                                        conn.rollback();
-                                        return res.status(500).send("Error al actualizar el historial de ventas.");
-                                    }
-    
-                                    conn.commit((err) => {
-                                        if (err) {
-                                            conn.rollback();
-                                            return res.status(500).send("Error al confirmar los cambios.");
-                                        }
-    
-                                        res.status(200).send("Estado de la venta actualizado correctamente.");
-                                    });
-                                }
-                            );
+                            res.status(200).send("Estado de la venta actualizado correctamente.");
                         });
                     });
                 });
