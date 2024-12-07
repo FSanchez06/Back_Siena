@@ -3,8 +3,8 @@ const router = express.Router();
 const {
     getSaleById,
     getUserSales,
-    getAllSales,
     updateSaleStatus,
+    getAllSales,
     requestRefund,
     getSaleDetails,
 } = require("../controllers/VentasController");

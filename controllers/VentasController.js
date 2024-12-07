@@ -23,6 +23,39 @@ module.exports = {
         });
     },
 
+    getAllSales: (req, res) => {
+        req.getConnection((err, conn) => {
+            if (err) return res.status(500).send("Error de conexión a la base de datos.");
+
+            const query = `
+                SELECT 
+                    V.ID_Venta AS "ID Venta",
+                    V.FechaVenta AS "Fecha Venta",
+                    V.ID_Pedido AS "ID Pedido",
+                    V.TotalVenta AS "Total Venta",
+                    V.Estado AS "Estado Venta",
+                    U.ID_Usuario AS "ID Usuario",
+                    U.Nombre AS "Nombre Usuario",
+                    U.Email AS "Email",
+                    U.Telefono AS "Telefono",
+                    U.Ciudad AS "Ciudad",
+                    U.CodPostal AS "Codigo Postal",
+                    U.Direccion AS "Direccion"
+                FROM 
+                    Ventas V
+                INNER JOIN 
+                    Usuario U ON V.ID_Usuario = U.ID_Usuario
+                INNER JOIN 
+                    Pedidos P ON V.ID_Pedido = P.ID_Pedido
+                ORDER BY V.FechaVenta DESC`;
+
+            conn.query(query, (err, results) => {
+                if (err) return res.status(500).send("Error al obtener las ventas.");
+                res.json(results);
+            });
+        });
+    },
+
     // Obtener todas las ventas de un usuario (solo las ventas del cliente)
     getUserSales: (req, res) => {
         const userId = req.userId;
@@ -46,56 +79,6 @@ module.exports = {
             });
         });
     },
-
-    // Obtener todas las ventas (Admin, Empleado)
-    getAllSales: (req, res) => {
-        const userRole = req.userRole; // Asegúrate de que el middleware de autenticación pase el rol del usuario
-        if (![1, 2].includes(userRole)) {
-            return res.status(403).send("No tienes permisos para realizar esta acción.");
-        }
-    
-        req.getConnection((err, conn) => {
-            if (err) {
-                console.error("Error de conexión a la base de datos:", err);
-                return res.status(500).send("Error de conexión a la base de datos.");
-            }
-    
-            const query = `
-                SELECT 
-                    V.ID_Venta AS "ID Venta",
-                    V.FechaVenta AS "Fecha Venta",
-                    V.ID_Pedido AS "ID Pedido",
-                    V.TotalVenta AS "Total Venta",
-                    V.Estado AS "Estado Venta",
-                    U.ID_Usuario AS "ID Usuario",
-                    U.Nombre AS "Nombre Usuario",
-                    U.Email AS "Email",
-                    U.Telefono AS "Telefono",
-                    U.Ciudad AS "Ciudad",
-                    U.CodPostal AS "Codigo Postal",
-                    U.Direccion AS "Direccion"
-                FROM 
-                    Ventas V
-                INNER JOIN 
-                    Usuario U ON V.ID_Usuario = U.ID_Usuario
-                INNER JOIN 
-                    Pedidos P ON V.ID_Pedido = P.ID_Pedido`;
-    
-            conn.query(query, (err, results) => {
-                if (err) {
-                    console.error("Error al ejecutar la consulta SQL:", err);
-                    return res.status(500).send("Error al obtener las ventas.");
-                }
-    
-                if (results.length === 0) {
-                    return res.status(404).send("No se encontraron ventas.");
-                }
-    
-                res.json(results);
-            });
-        });
-    },
-    
 
 
     // Obtener detalles de un pedido asociado a una venta
