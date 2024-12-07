@@ -292,23 +292,27 @@ module.exports = {
                 userRole === 3
                     ? "SELECT * FROM Pedidos WHERE ID_Usuario = ?"
                     : `SELECT 
-    p.ID_Pedido,
-    p.ID_Usuario,
-    u.Nombre AS NombreUsuario,
-    u.Email,
-    u.Telefono,
-    u.Ciudad,
-    u.CodPostal,
-    u.Direccion,
-    mp.ID_MetodoPago AS MetodoPago,
-    p.FechaPedido,
-    p.Total,
-    p.Estado,
-    p.FechaEntrega
-FROM Pedidos p
-JOIN Usuario u ON p.ID_Usuario = u.ID_Usuario
-LEFT JOIN MetodoPago mp ON p.ID_MetodoPago = mp.ID_MetodoPago;
-`;
+                    p.ID_Pedido,
+                    p.ID_Usuario,
+                    u.Nombre AS NombreUsuario,
+                    u.Email,
+                    u.Telefono,
+                    u.Ciudad,
+                    u.CodPostal,
+                    u.Direccion,
+                    COALESCE(mp.ID_MetodoPago, 0) AS ID_MetodoPago, -- Asegurar valores nulos
+                    CASE 
+                        WHEN mp.ID_MetodoPago = 1 THEN 'Nequi'
+                        WHEN mp.ID_MetodoPago = 2 THEN 'Pago contra entrega'
+                        ELSE 'Sin método de pago'
+                    END AS MetodoPago,
+                    p.FechaPedido,
+                    p.Total,
+                    p.Estado,
+                    p.FechaEntrega
+                FROM Pedidos p
+                JOIN Usuario u ON p.ID_Usuario = u.ID_Usuario
+                LEFT JOIN MetodoPago mp ON p.ID_MetodoPago = mp.ID_MetodoPago;`;
 
             const params = userRole === 3 ? [userId] : [];
 
