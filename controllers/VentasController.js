@@ -25,8 +25,13 @@ module.exports = {
 
     getAllSales: (req, res) => {
         req.getConnection((err, conn) => {
-            if (err) return res.status(500).send("Error de conexión a la base de datos.");
-
+            if (err) {
+                console.error("Error de conexión a la base de datos:", err);
+                return res.status(500).send("Error de conexión a la base de datos.");
+            }
+    
+            console.log("Solicitud recibida en el endpoint /ventas/todas");
+    
             const query = `
                 SELECT 
                     V.ID_Venta AS "ID Venta",
@@ -48,13 +53,23 @@ module.exports = {
                 INNER JOIN 
                     Pedidos P ON V.ID_Pedido = P.ID_Pedido
                 ORDER BY V.FechaVenta DESC`;
-
+    
             conn.query(query, (err, results) => {
-                if (err) return res.status(500).send("Error al obtener las ventas.");
+                if (err) {
+                    console.error("Error al ejecutar la consulta SQL:", err);
+                    return res.status(500).send("Error al obtener las ventas.");
+                }
+    
+                console.log("Resultados de la consulta:", results);
+                if (!results || results.length === 0) {
+                    return res.status(404).send("No se encontraron ventas.");
+                }
+    
                 res.json(results);
             });
         });
     },
+    
 
     // Obtener todas las ventas de un usuario (solo las ventas del cliente)
     getUserSales: (req, res) => {
