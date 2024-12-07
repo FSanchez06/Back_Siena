@@ -121,7 +121,12 @@ module.exports = {
             "Entregado": [] // No permite más cambios
         };
     
-        const validHistorialEstados = ["Completada", "Reembolsada", "Cancelada"]; // Estados válidos para HistorialVentas
+        // Mapeo de estados entre `Ventas` y `HistorialVentas`
+        const historialStateMapping = {
+            "En proceso": "Completada",
+            "Enviando": "Completada",
+            "Entregado": "Completada"
+        };
     
         req.getConnection((err, conn) => {
             if (err) return res.status(500).send("Error de conexión a la base de datos.");
@@ -140,9 +145,9 @@ module.exports = {
                         return res.status(400).send("Transición de estado no permitida.");
                     }
     
-                    // Validar si el nuevo estado es válido para la tabla HistorialVentas
-                    if (!validHistorialEstados.includes(newState)) {
-                        return res.status(400).send(`El estado "${newState}" no es válido para el historial de ventas.`);
+                    const historialState = historialStateMapping[newState];
+                    if (!historialState) {
+                        return res.status(400).send(`El estado "${newState}" no puede ser mapeado al historial de ventas.`);
                     }
     
                     conn.beginTransaction((err) => {
@@ -167,7 +172,7 @@ module.exports = {
                                 const notas = `Estado actualizado a ${newState} el ${new Date().toISOString()}`;
                                 conn.query(
                                     "INSERT INTO HistorialVentas (ID_Pedido, ID_Usuario, ID_MetodoPago, FechaVenta, TotalVenta, EstadoVenta, Notas) VALUES (?, ?, NULL, ?, ?, ?, ?)",
-                                    [ID_Pedido, ID_Usuario, FechaVenta, TotalVenta, newState, notas],
+                                    [ID_Pedido, ID_Usuario, FechaVenta, TotalVenta, historialState, notas],
                                     (err) => {
                                         if (err) {
                                             conn.rollback();
