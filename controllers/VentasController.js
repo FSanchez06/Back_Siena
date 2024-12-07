@@ -115,92 +115,80 @@ module.exports = {
         const saleId = req.params.id;
         const { Estado: newState } = req.body;
     
-        // Definir las transiciones válidas
         const validTransitions = {
             "En proceso": ["Enviando"],
             "Enviando": ["Entregado"],
             "Entregado": [] // No permite más cambios
         };
     
+        const validHistorialEstados = ["Completada", "Reembolsada", "Cancelada"]; // Estados válidos para HistorialVentas
+    
         req.getConnection((err, conn) => {
             if (err) return res.status(500).send("Error de conexión a la base de datos.");
     
-            // Obtener el estado actual de la venta
-            conn.query("SELECT Estado FROM Ventas WHERE ID_Venta = ?", [saleId], (err, results) => {
-                if (err || results.length === 0) return res.status(404).send("Venta no encontrada.");
+            // Obtener el estado actual y los datos necesarios de la venta
+            conn.query(
+                "SELECT Estado, ID_Pedido, ID_Usuario, FechaVenta, TotalVenta FROM Ventas WHERE ID_Venta = ?",
+                [saleId],
+                (err, results) => {
+                    if (err || results.length === 0) return res.status(404).send("Venta no encontrada.");
     
-                const currentState = results[0].Estado;
+                    const { Estado: currentState, ID_Pedido, ID_Usuario, FechaVenta, TotalVenta } = results[0];
     
-                // Validar si la transición es permitida
-                if (!validTransitions[currentState] || !validTransitions[currentState].includes(newState)) {
-                    return res.status(400).send("Transición de estado no permitida.");
-                }
+                    // Validar la transición de estado
+                    if (!validTransitions[currentState] || !validTransitions[currentState].includes(newState)) {
+                        return res.status(400).send("Transición de estado no permitida.");
+                    }
     
-                // Iniciar una transacción para actualizar el estado
-                conn.beginTransaction((err) => {
-                    if (err) return res.status(500).send("Error al iniciar la transacción.");
+                    // Validar si el nuevo estado es válido para la tabla HistorialVentas
+                    if (!validHistorialEstados.includes(newState)) {
+                        return res.status(400).send(`El estado "${newState}" no es válido para el historial de ventas.`);
+                    }
     
-                    // Actualizar el estado en la tabla `Ventas`
-                    conn.query(
-                        "UPDATE Ventas SET Estado = ? WHERE ID_Venta = ?",
-                        [newState, saleId],
-                        (err, result) => {
-                            if (err) {
-                                conn.rollback();
-                                return res.status(500).send("Error al actualizar el estado de la venta.");
-                            }
+                    conn.beginTransaction((err) => {
+                        if (err) return res.status(500).send("Error al iniciar la transacción.");
     
-                            if (result.affectedRows === 0) {
-                                conn.rollback();
-                                return res.status(404).send("Venta no encontrada.");
-                            }
+                        // Actualizar el estado en la tabla `Ventas`
+                        conn.query(
+                            "UPDATE Ventas SET Estado = ? WHERE ID_Venta = ?",
+                            [newState, saleId],
+                            (err, result) => {
+                                if (err) {
+                                    conn.rollback();
+                                    return res.status(500).send("Error al actualizar el estado de la venta.");
+                                }
     
-                            // Obtener el ID_Pedido para actualizar el historial
-                            conn.query(
-                                "SELECT ID_Pedido FROM Ventas WHERE ID_Venta = ?",
-                                [saleId],
-                                (err, results) => {
-                                    if (err || results.length === 0) {
-                                        conn.rollback();
-                                        return res.status(500).send("Error al obtener los detalles de la venta.");
-                                    }
+                                if (result.affectedRows === 0) {
+                                    conn.rollback();
+                                    return res.status(404).send("Venta no encontrada.");
+                                }
     
-                                    const { ID_Pedido } = results[0];
+                                // Actualizar la tabla `HistorialVentas`
+                                const notas = `Estado actualizado a ${newState} el ${new Date().toISOString()}`;
+                                conn.query(
+                                    "INSERT INTO HistorialVentas (ID_Pedido, ID_Usuario, ID_MetodoPago, FechaVenta, TotalVenta, EstadoVenta, Notas) VALUES (?, ?, NULL, ?, ?, ?, ?)",
+                                    [ID_Pedido, ID_Usuario, FechaVenta, TotalVenta, newState, notas],
+                                    (err) => {
+                                        if (err) {
+                                            conn.rollback();
+                                            return res.status(500).send("Error al actualizar el historial de ventas.");
+                                        }
     
-                                    // Actualizar el estado y las notas en `HistorialVentas`
-                                    const notas =
-                                        newState === "Cancelada" || newState === "Reembolsada"
-                                            ? `Venta ${newState} el ${new Date().toISOString()}`
-                                            : "Estado actualizado automáticamente";
-    
-                                    conn.query(
-                                        `UPDATE HistorialVentas 
-                                         SET EstadoVenta = ?, Notas = ? 
-                                         WHERE ID_Pedido = ?`,
-                                        [newState, notas, ID_Pedido],
-                                        (err) => {
+                                        conn.commit((err) => {
                                             if (err) {
                                                 conn.rollback();
-                                                return res.status(500).send("Error al actualizar el historial de ventas.");
+                                                return res.status(500).send("Error al confirmar los cambios.");
                                             }
     
-                                            // Confirmar la transacción
-                                            conn.commit((err) => {
-                                                if (err) {
-                                                    conn.rollback();
-                                                    return res.status(500).send("Error al confirmar los cambios.");
-                                                }
-    
-                                                res.status(200).send("Estado de la venta y el historial actualizado correctamente.");
-                                            });
-                                        }
-                                    );
-                                }
-                            );
-                        }
-                    );
-                });
-            });
+                                            res.status(200).send("Estado de la venta y el historial actualizado correctamente.");
+                                        });
+                                    }
+                                );
+                            }
+                        );
+                    });
+                }
+            );
         });
     },
     
