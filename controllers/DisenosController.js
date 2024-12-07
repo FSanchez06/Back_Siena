@@ -108,21 +108,41 @@ module.exports = {
     // Cambiar estado del diseño personalizado
     changeEstadoDiseno: (req, res) => {
         const disenoId = req.params.id;
-        const { Estado } = req.body;
-
+        const { Estado, Justificacion, Precio } = req.body;
+    
         req.getConnection((err, conn) => {
             if (err) return res.status(500).send("Error de conexión a la base de datos.");
-
-            conn.query(
-                "UPDATE DisenosPersonalizados SET Estado = ? WHERE ID_Disenio = ?", 
-                [Estado, disenoId], 
-                (err) => {
-                    if (err) return res.status(500).send("Error al cambiar el estado del diseño personalizado.");
-                    res.send("Estado del diseño personalizado cambiado correctamente.");
+    
+            // Validar lógica según el estado
+            if (Estado === "Rechazado" && !Justificacion) {
+                return res.status(400).send("Debe proporcionar una justificación para rechazar el diseño.");
+            }
+            if (Estado === "Aprobado" && (!Precio || Precio <= 0)) {
+                return res.status(400).send("Debe proporcionar un precio válido para aprobar el diseño.");
+            }
+    
+            // Construir la consulta según el estado
+            let query = "UPDATE DisenosPersonalizados SET Estado = ?";
+            let params = [Estado, disenoId];
+    
+            if (Estado === "Rechazado") {
+                query += ", Justificacion = ?";
+                params = [Estado, Justificacion, disenoId];
+            } else if (Estado === "Aprobado") {
+                query += ", Precio = ?";
+                params = [Estado, Precio, disenoId];
+            }
+    
+            conn.query(query, params, (err, result) => {
+                if (err) return res.status(500).send("Error al cambiar el estado del diseño personalizado.");
+                if (result.affectedRows === 0) {
+                    return res.status(404).send("Diseño no encontrado.");
                 }
-            );
+                res.send("Estado del diseño personalizado cambiado correctamente.");
+            });
         });
     },
+    
 
     // Eliminar diseño personalizado
     deleteDiseno: (req, res) => {
