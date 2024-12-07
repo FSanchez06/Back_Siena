@@ -47,6 +47,40 @@ module.exports = {
         });
     },
 
+    // Obtener todas las ventas (Admin, Empleado)
+getAllSales: (req, res) => {
+    req.getConnection((err, conn) => {
+        if (err) return res.status(500).send("Error de conexión a la base de datos.");
+
+        const query = `
+            SELECT 
+                V.ID_Venta AS "ID Venta",
+                V.FechaVenta AS "Fecha Venta",
+                V.ID_Pedido AS "ID Pedido",
+                V.TotalVenta AS "Total Venta",
+                V.Estado AS "Estado Venta",
+                U.ID_Usuario AS "ID Usuario",
+                U.Nombre AS "Nombre Usuario",
+                U.Email AS "Email",
+                U.Telefono AS "Telefono",
+                U.Ciudad AS "Ciudad",
+                U.CodPostal AS "Codigo Postal",
+                U.Direccion AS "Direccion"
+            FROM 
+                Ventas V
+            INNER JOIN 
+                Usuario U ON V.ID_Usuario = U.ID_Usuario
+            INNER JOIN 
+                Pedidos P ON V.ID_Pedido = P.ID_Pedido`;
+
+        conn.query(query, (err, results) => {
+            if (err) return res.status(500).send("Error al obtener las ventas.");
+            res.json(results);
+        });
+    });
+},
+
+
     // Obtener detalles de un pedido asociado a una venta
     getSaleDetails: (req, res) => {
         const ventaId = req.params.id;
