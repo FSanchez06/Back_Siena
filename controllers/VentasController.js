@@ -113,87 +113,80 @@ module.exports = {
     // Actualizar el estado de una venta (Admin, Empleado)
     updateSaleStatus: (req, res) => {
         const saleId = req.params.id;
-        const { Estado: newState } = req.body;
+        const { Estado } = req.body;
     
+        // Estados válidos para las transiciones
         const validTransitions = {
             "En proceso": ["Enviando"],
             "Enviando": ["Entregado"],
-            "Entregado": [] // No permite más cambios
+            "Entregado": [] // No permite cambios
         };
     
-        // Mapeo de estados entre `Ventas` y `HistorialVentas`
-        const historialStateMapping = {
-            "En proceso": "Completada",
-            "Enviando": "Completada",
-            "Entregado": "Completada"
-        };
-    
+        // Validar si el nuevo estado es válido para el estado actual
         req.getConnection((err, conn) => {
             if (err) return res.status(500).send("Error de conexión a la base de datos.");
     
-            // Obtener el estado actual y los datos necesarios de la venta
-            conn.query(
-                "SELECT Estado, ID_Pedido, ID_Usuario, FechaVenta, TotalVenta FROM Ventas WHERE ID_Venta = ?",
-                [saleId],
-                (err, results) => {
-                    if (err || results.length === 0) return res.status(404).send("Venta no encontrada.");
+            // Obtener el estado actual de la venta
+            conn.query("SELECT Estado FROM Ventas WHERE ID_Venta = ?", [saleId], (err, results) => {
+                if (err) return res.status(500).send("Error al obtener el estado actual de la venta.");
+                if (results.length === 0) return res.status(404).send("Venta no encontrada.");
     
-                    const { Estado: currentState, ID_Pedido, ID_Usuario, FechaVenta, TotalVenta } = results[0];
+                const currentState = results[0].Estado;
     
-                    // Validar la transición de estado
-                    if (!validTransitions[currentState] || !validTransitions[currentState].includes(newState)) {
-                        return res.status(400).send("Transición de estado no permitida.");
-                    }
+                // Verificar si la transición es válida
+                if (!validTransitions[currentState] || !validTransitions[currentState].includes(Estado)) {
+                    return res.status(400).send("Transición de estado no permitida.");
+                }
     
-                    const historialState = historialStateMapping[newState];
-                    if (!historialState) {
-                        return res.status(400).send(`El estado "${newState}" no puede ser mapeado al historial de ventas.`);
-                    }
+                conn.beginTransaction((err) => {
+                    if (err) return res.status(500).send("Error al iniciar la transacción.");
     
-                    conn.beginTransaction((err) => {
-                        if (err) return res.status(500).send("Error al iniciar la transacción.");
+                    // Actualizar el estado en la tabla `Ventas`
+                    conn.query("UPDATE Ventas SET Estado = ? WHERE ID_Venta = ?", [Estado, saleId], (err, result) => {
+                        if (err) {
+                            conn.rollback();
+                            return res.status(500).send("Error al actualizar el estado de la venta.");
+                        }
     
-                        // Actualizar el estado en la tabla `Ventas`
-                        conn.query(
-                            "UPDATE Ventas SET Estado = ? WHERE ID_Venta = ?",
-                            [newState, saleId],
-                            (err, result) => {
-                                if (err) {
-                                    conn.rollback();
-                                    return res.status(500).send("Error al actualizar el estado de la venta.");
-                                }
+                        if (result.affectedRows === 0) {
+                            conn.rollback();
+                            return res.status(404).send("Venta no encontrada.");
+                        }
     
-                                if (result.affectedRows === 0) {
-                                    conn.rollback();
-                                    return res.status(404).send("Venta no encontrada.");
-                                }
+                        // Obtener el ID_Pedido para actualizar el historial
+                        conn.query("SELECT ID_Pedido FROM Ventas WHERE ID_Venta = ?", [saleId], (err, results) => {
+                            if (err || results.length === 0) {
+                                conn.rollback();
+                                return res.status(500).send("Error al obtener los detalles de la venta.");
+                            }
     
-                                // Actualizar la tabla `HistorialVentas`
-                                const notas = `Estado actualizado a ${newState} el ${new Date().toISOString()}`;
-                                conn.query(
-                                    "INSERT INTO HistorialVentas (ID_Pedido, ID_Usuario, ID_MetodoPago, FechaVenta, TotalVenta, EstadoVenta, Notas) VALUES (?, ?, NULL, ?, ?, ?, ?)",
-                                    [ID_Pedido, ID_Usuario, FechaVenta, TotalVenta, historialState, notas],
-                                    (err) => {
+                            const { ID_Pedido } = results[0];
+    
+                            // Registrar el cambio en el historial de ventas
+                            const notas = `Estado actualizado a "${Estado}" el ${new Date().toISOString()}`;
+                            conn.query(
+                                "INSERT INTO HistorialVentas (ID_Pedido, EstadoVenta, Notas) VALUES (?, ?, ?)",
+                                [ID_Pedido, Estado, notas],
+                                (err) => {
+                                    if (err) {
+                                        conn.rollback();
+                                        return res.status(500).send("Error al actualizar el historial de ventas.");
+                                    }
+    
+                                    conn.commit((err) => {
                                         if (err) {
                                             conn.rollback();
-                                            return res.status(500).send("Error al actualizar el historial de ventas.");
+                                            return res.status(500).send("Error al confirmar los cambios.");
                                         }
     
-                                        conn.commit((err) => {
-                                            if (err) {
-                                                conn.rollback();
-                                                return res.status(500).send("Error al confirmar los cambios.");
-                                            }
-    
-                                            res.status(200).send("Estado de la venta y el historial actualizado correctamente.");
-                                        });
-                                    }
-                                );
-                            }
-                        );
+                                        res.status(200).send("Estado de la venta actualizado correctamente.");
+                                    });
+                                }
+                            );
+                        });
                     });
-                }
-            );
+                });
+            });
         });
     },
     
