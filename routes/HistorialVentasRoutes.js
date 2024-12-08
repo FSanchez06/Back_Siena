@@ -8,7 +8,7 @@ const {
 } = require("../controllers/HistorialVentasController");
 
 // Rutas protegidas para el historial de ventas (clientes)
-router.get("/historial-ventas", authenticateToken, checkRole([3]), getHistorialVentasByUser);
-router.get("/historial-ventas/:id/detalles", authenticateToken, checkRole([3]), getDetalleVentaHistorial);
+router.get("/historial-ventas", authenticateToken, checkRole([1, 2, 3]), getHistorialVentasByUser);
+router.get("/historial-ventas/:id/detalles", authenticateToken, checkRole([1, 2, 3]), getDetalleVentaHistorial);
 
 module.exports = router;
