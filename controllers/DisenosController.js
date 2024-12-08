@@ -121,17 +121,20 @@ module.exports = {
                 return res.status(400).send("Debe proporcionar un precio válido para aprobar el diseño.");
             }
     
-            // Construir la consulta según el estado
+            // Construir la consulta SQL dinámicamente
             let query = "UPDATE DisenosPersonalizados SET Estado = ?";
-            let params = [Estado, disenoId];
+            let params = [Estado];
     
             if (Estado === "Rechazado") {
                 query += ", Justificacion = ?";
-                params = [Estado, Justificacion, disenoId];
+                params.push(Justificacion);
             } else if (Estado === "Aprobado") {
                 query += ", Precio = ?";
-                params = [Estado, Precio, disenoId];
+                params.push(Precio);
             }
+    
+            query += " WHERE ID_Disenio = ?";
+            params.push(disenoId);
     
             conn.query(query, params, (err, result) => {
                 if (err) return res.status(500).send("Error al cambiar el estado del diseño personalizado.");
@@ -141,8 +144,7 @@ module.exports = {
                 res.send("Estado del diseño personalizado cambiado correctamente.");
             });
         });
-    },
-    
+    },    
 
     // Eliminar diseño personalizado
     deleteDiseno: (req, res) => {
