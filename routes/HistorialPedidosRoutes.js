@@ -8,7 +8,7 @@ const {
 } = require("../controllers/HistorialPedidosController");
 
 // Rutas protegidas para el historial de pedidos (clientes)
-router.get("/historial-pedidos", authenticateToken, checkRole([3]), getHistorialPedidosByUser);
-router.get("/historial-pedidos/:id/detalles", authenticateToken, checkRole([3]), getDetallesPedidoHistorial);
+router.get("/historial-pedidos", authenticateToken, checkRole([1, 2, 3]), getHistorialPedidosByUser);
+router.get("/historial-pedidos/:id/detalles", authenticateToken, checkRole([1, 2, 3]), getDetallesPedidoHistorial);
 
 module.exports = router;
